@@ -71,6 +71,14 @@ function isReasoningModel(model: string): boolean {
 
 // ========== OpenAI ↔ Anthropic conversion ==========
 
+function parseDataUrl(url: string) {
+  if (!url) return null;
+  const match = url.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9\-\+]+);base64,(.+)$/);
+  if (match) return { mimeType: match[1], data: match[2] };
+  return null;
+}
+
+
 /**
  * Convert OpenAI chat completions request to Anthropic Messages format.
  * - Extracts `system` messages to top-level `system` field
@@ -93,15 +101,32 @@ function openaiToAnthropicRequest(body: any): any {
     for (const m of body.messages) {
       if (!m || typeof m !== "object") continue;
       if (m.role === "system") {
-        if (typeof m.content === "string") systemParts.push(m.content);
+        if (typeof m.content === "string") {
+          systemParts.push(m.content);
+        } else if (Array.isArray(m.content)) {
+          const texts = m.content
+            .filter((p: any) => p && (p.type === "text" || typeof p === "string"))
+            .map((p: any) => (typeof p === "string" ? p : p.text || ""));
+          systemParts.push(texts.join(""));
+        }
         continue;
       }
       let content: any = m.content;
       if (Array.isArray(m.content)) {
-        const texts = m.content
-          .filter((p: any) => p && (p.type === "text" || typeof p === "string"))
-          .map((p: any) => (typeof p === "string" ? p : p.text || ""));
-        content = texts.join("");
+        content = [];
+        for (const p of m.content) {
+          if (!p) continue;
+          if (typeof p === "string") content.push({ type: "text", text: p });
+          else if (p.type === "text") content.push({ type: "text", text: p.text || "" });
+          else if (p.type === "image_url" && p.image_url?.url) {
+            const parsed = parseDataUrl(p.image_url.url);
+            if (parsed) {
+              content.push({ type: "image", source: { type: "base64", media_type: parsed.mimeType, data: parsed.data } });
+            } else {
+              content.push({ type: "text", text: `[Image URL: ${p.image_url.url}]` });
+            }
+          }
+        }
       } else if (content == null) {
         content = "";
       }
@@ -179,17 +204,29 @@ function openaiToGoogleRequest(body: any): any {
   if (Array.isArray(body.messages)) {
     for (const m of body.messages) {
       if (!m || typeof m !== "object") continue;
-      let text = "";
-      if (typeof m.content === "string") text = m.content;
-      else if (Array.isArray(m.content)) {
-        text = m.content.filter((p:any) => p && (p.type === "text" || typeof p === "string"))
-          .map((p:any) => typeof p === "string" ? p : (p.text || "")).join("");
+      let parts: any[] = [];
+      if (typeof m.content === "string") {
+        parts.push({ text: m.content });
+      } else if (Array.isArray(m.content)) {
+        for (const p of m.content) {
+          if (!p) continue;
+          if (typeof p === "string") parts.push({ text: p });
+          else if (p.type === "text") parts.push({ text: p.text || "" });
+          else if (p.type === "image_url" && p.image_url?.url) {
+            const parsed = parseDataUrl(p.image_url.url);
+            if (parsed) {
+              parts.push({ inlineData: { mimeType: parsed.mimeType, data: parsed.data } });
+            } else {
+              parts.push({ text: `[Image URL: ${p.image_url.url}]` });
+            }
+          }
+        }
       }
       if (m.role === "system") {
-        out.systemInstruction = { role: "user", parts: [{ text }] };
+        out.systemInstruction = { role: "user", parts };
         continue;
       }
-      out.contents.push({ role: m.role === "assistant" ? "model" : "user", parts: [{ text }] });
+      out.contents.push({ role: m.role === "assistant" ? "model" : "user", parts });
     }
   }
   return out;
