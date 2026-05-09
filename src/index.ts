@@ -29,8 +29,12 @@ app.get("/api/public/v1/health", (c) => c.json({ status: "ok" })); // EdgeSpark 
 app.use("*", async (c, next) => {
   const expectedKey = getEnv(c, "CLIENT_API_KEY");
   if (expectedKey) {
-    const auth = c.req.header("authorization") || "";
-    const token = auth.replace(/^Bearer\s+/i, "");
+    const token =
+      c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ||
+      c.req.header("x-goog-api-key") ||
+      c.req.header("x-api-key") ||
+      c.req.query("key") ||
+      "";
     if (token !== expectedKey) {
       return c.json({ error: { message: "Invalid API key", type: "authentication_error" } }, 401);
     }
