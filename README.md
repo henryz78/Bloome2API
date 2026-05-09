@@ -18,6 +18,8 @@
 - [`MODELS.md`](./MODELS.md)
 - [`THINKING.md`](./THINKING.md)
 
+其中 `THINKING.md` 记录了 `-thinking` 别名的设计与兼容规则。
+
 如果你想确认某个模型到底是不是“真那个模型”，先看 `MODELS.md`。
 
 ## 模型激活机制

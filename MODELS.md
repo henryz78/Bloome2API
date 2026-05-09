@@ -23,6 +23,10 @@
 | Claude Opus 4.6 | `claude-opus-4-6` | Anthropic | `claude-opus-4-6` | 否 | 返回名未变 |
 | Claude Sonnet 4.6 | `claude-sonnet-4-6` | Anthropic | `claude-sonnet-4-6` | 否 | 返回名未变 |
 | Claude Haiku 4.5 | `claude-haiku-4-5` | Anthropic | `claude-haiku-4-5-20251001` | 否 | 返回为带日期后缀的具体版本 |
+| Claude Opus 4.7 Thinking | `claude-opus-4-7-thinking` | Anthropic | `claude-opus-4-7` | 否 | thinking alias；当前已启用 adaptive，但上游暂未返回可见 thinking 文本 |
+| Claude Opus 4.6 Thinking | `claude-opus-4-6-thinking` | Anthropic | `claude-opus-4-6` | 否 | thinking alias；代理会提取 `thinking` / `thinking_delta` 映射到 `reasoning_content` |
+| Claude Sonnet 4.6 Thinking | `claude-sonnet-4-6-thinking` | Anthropic | `claude-sonnet-4-6` | 否 | thinking alias；代理会提取 `thinking` / `thinking_delta` 映射到 `reasoning_content` |
+| Claude Haiku 4.5 Thinking | `claude-haiku-4-5-thinking` | Anthropic | `claude-haiku-4-5-20251001` | 否 | thinking alias；固定走 `enabled + budget_tokens` |
 | MiniMax M2.7 | `MiniMax-M2.7` | Anthropic | `MiniMax-M2.7` | 否 | 注意大小写敏感 |
 | GPT 5.4 | `gpt-5.4` | OpenAI | `gpt-5.4-2026-03-05` | 否 | 返回为带日期后缀的具体版本 |
 | GPT 5.4 Mini | `gpt-5.4-mini` | OpenAI | `gpt-5.4-mini-2026-03-17` | 否 | 返回为带日期后缀的具体版本 |

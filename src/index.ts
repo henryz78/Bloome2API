@@ -47,9 +47,13 @@ const BLOOME_LLM_BASE = "https://stream.bloome.im/api/llm/proxy/reson";
 
 const MODELS = [
   { id: "claude-opus-4-7", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-7", parent: null },
+  { id: "claude-opus-4-7-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-7-thinking", parent: "claude-opus-4-7" },
   { id: "claude-opus-4-6", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-6", parent: null },
+  { id: "claude-opus-4-6-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-6-thinking", parent: "claude-opus-4-6" },
   { id: "claude-sonnet-4-6", object: "model", created: 1687882411, owned_by: "reson", root: "claude-sonnet-4-6", parent: null },
+  { id: "claude-sonnet-4-6-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "claude-sonnet-4-6-thinking", parent: "claude-sonnet-4-6" },
   { id: "claude-haiku-4-5", object: "model", created: 1687882411, owned_by: "reson", root: "claude-haiku-4-5", parent: null },
+  { id: "claude-haiku-4-5-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "claude-haiku-4-5-thinking", parent: "claude-haiku-4-5" },
   { id: "gpt-5.4", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4", parent: null },
   { id: "gpt-5.4-mini", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4-mini", parent: null },
   { id: "glm-5.1", object: "model", created: 1687882411, owned_by: "reson", root: "glm-5.1", parent: null },
@@ -69,6 +73,44 @@ const MODELS = [
 
 function isClaudeModel(model: string): boolean {
   return typeof model === "string" && model.toLowerCase().startsWith("claude");
+}
+
+function isClaudeThinkingAlias(model: string): boolean {
+  return typeof model === "string" && model.toLowerCase().startsWith("claude") && model.toLowerCase().endsWith("-thinking");
+}
+
+function getClaudeThinkingConfig(model: string): { publicModel: string; upstreamModel: string; thinking?: any; output_config?: any } {
+  const publicModel = model;
+  const upstreamModel = isClaudeThinkingAlias(model) ? model.slice(0, -"-thinking".length) : model;
+
+  if (!isClaudeThinkingAlias(model)) {
+    return { publicModel, upstreamModel };
+  }
+
+  switch (upstreamModel) {
+    case "claude-opus-4-7":
+      return {
+        publicModel,
+        upstreamModel,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "medium" },
+      };
+    case "claude-opus-4-6":
+    case "claude-sonnet-4-6":
+      return {
+        publicModel,
+        upstreamModel,
+        thinking: { type: "adaptive" },
+      };
+    case "claude-haiku-4-5":
+      return {
+        publicModel,
+        upstreamModel,
+        thinking: { type: "enabled", budget_tokens: 1024 },
+      };
+    default:
+      return { publicModel, upstreamModel };
+  }
 }
 
 
@@ -99,8 +141,9 @@ function parseDataUrl(url: string) {
  * - Flattens content arrays into strings
  */
 function openaiToAnthropicRequest(body: any): any {
+  const thinkingCfg = getClaudeThinkingConfig(body.model || "");
   const out: any = {
-    model: body.model,
+    model: thinkingCfg.upstreamModel,
     max_tokens: body.max_tokens ?? body.max_completion_tokens ?? 4096,
     messages: [],
   };
@@ -108,6 +151,8 @@ function openaiToAnthropicRequest(body: any): any {
   if (body.temperature !== undefined) out.temperature = body.temperature;
   if (body.top_p !== undefined) out.top_p = body.top_p;
   if (body.stop !== undefined) out.stop_sequences = Array.isArray(body.stop) ? body.stop : [body.stop];
+  if (thinkingCfg.thinking) out.thinking = thinkingCfg.thinking;
+  if (thinkingCfg.output_config) out.output_config = thinkingCfg.output_config;
 
   const systemParts: string[] = [];
   if (Array.isArray(body.messages)) {
@@ -170,26 +215,31 @@ function mapAnthropicStopReason(stop: string | null | undefined): string | null 
  * - Maps stop_reason to OpenAI finish_reason
  * - Converts input_tokens/output_tokens to prompt_tokens/completion_tokens
  */
-function anthropicToOpenaiResponse(data: any): any {
+function anthropicToOpenaiResponse(data: any, publicModel?: string): any {
   if (!data || typeof data !== "object") return data;
   if (data.error) return data;
   let text = "";
+  let reasoning = "";
   if (Array.isArray(data.content)) {
     for (const block of data.content) {
-      if (block && block.type === "text" && typeof block.text === "string") text += block.text;
+      if (!block || typeof block !== "object") continue;
+      if (block.type === "text" && typeof block.text === "string") text += block.text;
+      if (block.type === "thinking" && typeof block.thinking === "string") reasoning += block.thinking;
     }
   }
   const promptTokens = data.usage?.input_tokens || 0;
   const completionTokens = data.usage?.output_tokens || 0;
+  const message: any = { role: "assistant", content: text };
+  if (reasoning) message.reasoning_content = reasoning;
   return {
     id: data.id || "",
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
-    model: data.model || "",
+    model: publicModel || data.model || "",
     choices: [
       {
         index: 0,
-        message: { role: "assistant", content: text },
+        message,
         finish_reason: mapAnthropicStopReason(data.stop_reason),
       },
     ],
@@ -445,6 +495,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
 
   // ===== Branch 1: Claude → translate to Anthropic =====
   if (isClaudeModel(body.model)) {
+    const thinkingCfg = getClaudeThinkingConfig(body.model);
     const anthropicBody = openaiToAnthropicRequest(body);
 
     if (!isStream) {
@@ -458,7 +509,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
         body: JSON.stringify(anthropicBody),
       });
       const upstream = await resp.json().catch(() => ({ error: { message: "Upstream error" } }));
-      return c.json(upstream.error ? upstream : anthropicToOpenaiResponse(upstream), resp.status as any);
+      return c.json(upstream.error ? upstream : anthropicToOpenaiResponse(upstream, thinkingCfg.publicModel), resp.status as any);
     }
 
     // Streaming: convert Anthropic SSE → OpenAI SSE chunks
@@ -482,7 +533,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let chunkId = "", chunkModel = body.model;
+      let chunkId = "", chunkModel = thinkingCfg.publicModel;
       let roleSent = false, lastStop: string | null = null, lastUsage: any = null;
 
       const writeChunk = async (delta: any, finish_reason: string | null = null, usage: any = null) => {
@@ -506,12 +557,13 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           if (curEvent === "message_start") {
             const m = d.message || {};
             chunkId = m.id || chunkId;
-            chunkModel = m.model || chunkModel;
             if (!roleSent) { await writeChunk({ role: "assistant", content: "" }); roleSent = true; }
           } else if (curEvent === "content_block_delta") {
             const dl = d.delta || {};
             if (dl.type === "text_delta" && typeof dl.text === "string" && dl.text) {
               await writeChunk({ content: dl.text });
+            } else if (dl.type === "thinking_delta" && typeof dl.thinking === "string" && dl.thinking) {
+              await writeChunk({ reasoning_content: dl.thinking });
             }
           } else if (curEvent === "message_delta") {
             if (d.delta?.stop_reason) lastStop = d.delta.stop_reason;
