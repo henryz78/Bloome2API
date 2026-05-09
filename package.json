@@ -1,0 +1,17 @@
+{
+  "name": "bloome-llm-gateway",
+  "version": "1.0.0",
+  "description": "OpenAI-compatible API gateway for Bloome's built-in LLM provider. Supports Kimi, GPT-5.4, and Claude Opus 4.7 with automatic format translation.",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.0.0"
+  }
+}
