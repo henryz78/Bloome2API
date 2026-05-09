@@ -228,6 +228,8 @@ EDGESPARK_PROJECT_ENVIRONMENT=production npx edgespark deploy
 
 6. **Claude 只能走 `/v1/messages`**：不要试图用 `/v1/chat/completions` 端点调 Claude。代码里 `isClaudeModel` 判断已经自动转发到正确端点。
 
+7. **每次部署或更新必须返回最新网址**：EdgeSpark 如果是全新部署或重新创建项目，生成的公网网址会发生变化。因此，无论是首次部署，还是后续做完修复和更新，只要执行了 `deploy`，都**必须**把最新的完整公网 API URL（例如 `https://xxx.edgespark.app/api/public/v1`）明确提供给用户，防止客户端配错旧地址。
+
 ---
 
 ## 不要做的事
