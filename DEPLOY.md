@@ -192,36 +192,56 @@ curl -X POST http://localhost:3000/api/public/v1/chat/completions \
 ```bash
 bloome-cli edgespark project create --alias gateway
 ```
-2. 将代码复制到 EdgeSpark 项目，并精准注入 EdgeSpark 运行时变量补丁：
+
+**重要规则：**
+- 真正从零部署时，优先用 fresh alias（例如 `gateway-20260509`），不要默认复用历史 alias。
+- create 之后先做一次 `pull smoke test`，通过了再继续 deploy。
+- 如果 `pull` 失败，优先判断 binding/token 有问题，不要先怀疑业务代码。
+
+2. 先做 pull smoke test：
+```bash
+bloome-cli secret call EDGESPARK_API_KEY__GATEWAY__XXXX -- bash -c 'cd edgespark/gateway && EDGESPARK_API_KEY="$EDGESPARK_API_KEY__GATEWAY__XXXX" EDGESPARK_PROJECT_ENVIRONMENT=production edgespark pull'
+```
+如果这一步失败，不要继续 deploy。先处理 binding/token 问题。
+
+3. 将代码复制到 EdgeSpark 项目，并精准注入 EdgeSpark 运行时变量补丁：
 ```bash
 cp src/index.ts edgespark/gateway/server/src/index.ts
 sed -i '1s/^/import { vars } from "edgespark";\n/' edgespark/gateway/server/src/index.ts
 sed -i 's|// __EDGESPARK_INJECT_VARS__|try { const v = vars.get(key as RuntimeKey); if (v) return v; } catch(e) {}|' edgespark/gateway/server/src/index.ts
 ```
-3. **不要把密钥写进 `edgespark.toml`，也不要提交到仓库。** 运行时变量必须远程设置：
+
+4. **不要把密钥写进 `edgespark.toml`，也不要提交到仓库。** 运行时变量必须远程设置：
 ```bash
 cd edgespark/gateway
 EDGESPARK_PROJECT_ENVIRONMENT=production edgespark var set \
   BLOOME_API_KEY="这里填你的真实BLOOME_API_KEY" \
   CLIENT_API_KEY="用户给的密码"
 ```
-4. 进入目录并部署：
+
+5. 进入目录并部署：
 ```bash
 cd edgespark/gateway/server
 npm install
 EDGESPARK_PROJECT_ENVIRONMENT=production npx edgespark deploy
 ```
-5. 先验证健康检查和配置状态（`/health` 允许免鉴权访问，便于第一次 bring-up 排障）：
+
+6. 先验证健康检查和配置状态（`/health` 允许免鉴权访问，便于第一次 bring-up 排障）：
 ```bash
-curl -H "Authorization: Bearer 用户给的密码" \
-  https://xxx.edgespark.app/api/public/v1/health
+curl https://xxx.edgespark.app/api/public/v1/health
 ```
 应该看到：
 ```json
 {"status":"ok","config":{"bloomeApiKey":true,"clientApiKey":true}}
 ```
-6. 再验证模型列表 / 聊天接口，确认返回 200。
-7. 把存活的公网链接发给用户。
+
+7. 再验证模型列表 / 聊天接口，确认返回 200。
+8. 把存活的公网链接发给用户。
+
+**补充规则：**
+- 旧 alias 一旦出现 `verify 404`、`invalid bearer token`、`unhealthy`，直接当作脏 binding 处理。
+- 不要继续在旧 alias 上反复 deploy。
+- 处理方式是：换 fresh alias 继续，或者删掉旧 alias 后重建。
 
 ## 第九步：热更新（已有 EdgeSpark 项目时）
 
@@ -237,31 +257,48 @@ curl -H "Authorization: Bearer 用户给的密码" \
 ### 热更新步骤
 
 1. 确认当前项目别名（本项目默认是 `gateway`）
-2. 把最新代码同步到 EdgeSpark 项目目录：
+2. 先检查当前 alias 状态：
+```bash
+bloome-cli edgespark project info gateway
+bloome-cli edgespark project verify gateway
+```
+如果这里已经出现 `verify 404`、`invalid bearer token`、`unhealthy`，不要热更新，直接按“重建项目”处理。
+
+3. 再跑一次 pull smoke test：
+```bash
+bloome-cli secret call EDGESPARK_API_KEY__GATEWAY__XXXX -- bash -c 'cd edgespark/gateway && EDGESPARK_API_KEY="$EDGESPARK_API_KEY__GATEWAY__XXXX" EDGESPARK_PROJECT_ENVIRONMENT=production edgespark pull'
+```
+如果 pull 失败，也不要继续 deploy。
+
+4. 把最新代码同步到 EdgeSpark 项目目录：
 ```bash
 cp src/index.ts edgespark/gateway/server/src/index.ts
 sed -i '1s/^/import { vars } from "edgespark";\n/' edgespark/gateway/server/src/index.ts
 sed -i 's|// __EDGESPARK_INJECT_VARS__|try { const v = vars.get(key as RuntimeKey); if (v) return v; } catch(e) {}|' edgespark/gateway/server/src/index.ts
 ```
-3. 如有环境变量变更，远程同步更新：
+
+5. 如有环境变量变更，远程同步更新：
 ```bash
 cd edgespark/gateway
 EDGESPARK_PROJECT_ENVIRONMENT=production edgespark var set \
   BLOOME_API_KEY="这里填你的真实BLOOME_API_KEY" \
   CLIENT_API_KEY="用户当前想设置的密码"
 ```
-4. 进入项目目录并重新部署：
+
+6. 进入项目目录并重新部署：
 ```bash
 cd edgespark/gateway/server
 npm install
 EDGESPARK_PROJECT_ENVIRONMENT=production npx edgespark deploy
 ```
-5. 部署完成后，先验证配置健康，再验证模型接口：
+
+7. 部署完成后，先验证配置健康，再验证模型接口：
 ```bash
-curl -H "Authorization: Bearer 你的CLIENT_API_KEY" https://你的域名.edgespark.app/api/public/v1/health
+curl https://你的域名.edgespark.app/api/public/v1/health
 curl -H "Authorization: Bearer 你的CLIENT_API_KEY" https://你的域名.edgespark.app/api/public/v1/models
 ```
-6. **无论 URL 是否变化，都把最新完整公网 API URL 再发给用户确认一次**。
+
+8. **无论 URL 是否变化，都把最新完整公网 API URL 再发给用户确认一次**。
 
 ### 什么时候必须重建项目，什么时候只需要热更新
 
@@ -271,11 +308,13 @@ curl -H "Authorization: Bearer 你的CLIENT_API_KEY" https://你的域名.edgesp
 - thinking / reasoning 适配
 - 文档以外的服务端代码更新
 - API Key 轮换
+- 当前 alias 的 `project info` / `verify` / `pull smoke test` 都正常
 
 **需要重新创建项目：**
 - 本地没有 `edgespark/gateway/` 项目目录了
 - 需要换一个全新的 EdgeSpark alias / 项目
 - 旧项目绑定关系失效或必须迁移到新项目
+- 旧 alias 出现 `verify 404`、`invalid bearer token`、`unhealthy`
 
 ## 关键提醒（Agent 必须牢记）
 
@@ -293,6 +332,8 @@ curl -H "Authorization: Bearer 你的CLIENT_API_KEY" https://你的域名.edgesp
 
 7. **每次部署或更新必须返回最新网址**：EdgeSpark 如果是全新部署或重新创建项目，生成的公网网址会发生变化。因此，无论是首次部署，还是后续做完修复和更新，只要执行了 `deploy`，都**必须**把最新的完整公网 API URL（例如 `https://xxx.edgespark.app/api/public/v1`）明确提供给用户，防止客户端配错旧地址。
 
+8. **EdgeSpark 部署先 smoke test，再 deploy**：create 之后先用对应 secret 跑一次 `edgespark pull`。如果 pull 失败，优先判断 binding/token 有问题；不要急着怀疑业务代码。
+
 ## 不要做的事
 
 - ❌ 把 API key 写死在代码里
@@ -302,3 +343,4 @@ curl -H "Authorization: Bearer 你的CLIENT_API_KEY" https://你的域名.edgesp
 - ❌ Claude 请求不带 `anthropic-version` 头
 - ❌ 跳过第七步的流式验证
 - ❌ 把密钥写进 `edgespark.toml` 或提交到仓库
+- ❌ 旧 alias 已经 `verify 404` / `invalid bearer token` 了，还继续在上面反复 deploy
