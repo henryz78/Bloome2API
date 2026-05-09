@@ -10,8 +10,12 @@ import type { Context } from "hono";
 
 
 function getEnv<T extends string>(c: Context, key: T): string {
-  let val = env<Record<T, string>>(c)[key];
-  if (val) return val;
+  try {
+    let val = env<Record<T, string>>(c)[key];
+    if (val) return val;
+  } catch (e) {
+    // env() throws in EdgeSpark
+  }
   if (typeof process !== "undefined" && process.env && process.env[key]) {
     return process.env[key] as string;
   }
