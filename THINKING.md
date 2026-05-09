@@ -154,9 +154,11 @@ thinkingConfig: {
 
 因此 `claude-opus-4-7-thinking` 的最终实现应优先考虑：
 
+> 当前实测表明：即使显式传入 `display: "summarized"`，现阶段 Bloome 上游 / 当前 Bedrock 路由仍可能只返回正文、不返回可见 thinking summary。也就是说，代理侧已按官方推荐参数开启，但当前上游未必透传可见 summary。
+
 ```json
 {
-  "thinking": { "type": "adaptive" },
+  "thinking": { "type": "adaptive", "display": "summarized" },
   "output_config": { "effort": "medium" }
 }
 ```
