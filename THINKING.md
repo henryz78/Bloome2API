@@ -308,7 +308,7 @@ thinkingConfig: {
 
 ### 第三步：补 Gemini 探测并决定是否实现
 
-确认 `includeThoughts` 在当前上游是否真实可用。
+当前已确认 `includeThoughts` 在当前上游真实可用；下一步重点是代理映射与文档同步。
 
 ### 第四步：最后再处理 GPT-5
 

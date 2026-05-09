@@ -39,7 +39,9 @@
 | DeepSeek V4 Flash | `deepseek-v4-flash` | OpenAI | `deepseek-v4-flash` | 否 | 返回名未变 |
 | DeepSeek V3.2 | `deepseek-v3-2` | OpenAI | `deepseek-v4-pro` | 是 | 实际落到 V4 Pro；注意代理 id 里是连字符，不是点 |
 | Gemini 3.1 Pro | `gemini-3.1-pro` | Gemini | `gemini-3.1-pro-preview` | 是 | 实际是 preview 版本 |
+| Gemini 3.1 Pro Thinking | `gemini-3.1-pro-thinking` | Gemini | `gemini-3.1-pro-preview` | 是 | thinking alias；代理会将 `parts[].thought` 映射到 `reasoning_content` |
 | Gemini 3 Flash | `gemini-3-flash` | Gemini | `gemini-3-flash-preview` | 是 | 实际是 preview 版本 |
+| Gemini 3 Flash Thinking | `gemini-3-flash-thinking` | Gemini | `gemini-3-flash-preview` | 是 | thinking alias；代理会将 `parts[].thought` 映射到 `reasoning_content` |
 
 ## 额外说明
 
