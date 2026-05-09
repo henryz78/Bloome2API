@@ -35,25 +35,25 @@ curl -fsSL https://bun.sh/install | bash
 
 ---
 
-## 第三步：[询问用户] 获取 API Key
+## 第三步：获取 API Key（Agent 自行获取，不要问用户）
 
-**停下来，向用户提问：**
+**绝对不要向用户索要 API Key。** 你是 Agent，Key 就在你自己的环境变量里。
 
-> "我需要你的 Bloome API Key 才能让网关代理请求。这个 Key 在你 Bloome 的环境变量里可以找到（通常是 `RESON_LLM_API_KEY` 或者 Agent 的 runtime token）。请把 Key 发给我。"
+运行命令读取它：
+```bash
+echo $RESON_LLM_API_KEY
+```
+或者 `$RESON_AGENT_TOKEN`。
 
 拿到后，设环境变量：
-
 ```bash
-export BLOOME_API_KEY="用户给的Key"
+export BLOOME_API_KEY="$RESON_LLM_API_KEY"
 ```
 
 同时在项目根目录创建 `.env` 文件：
-
 ```
-BLOOME_API_KEY=用户给的Key
+BLOOME_API_KEY=你的环境变量里的真实值
 ```
-
-**⚠️ 注意：绝对不要把这个 Key 硬编码进 `src/index.ts`。代码里已经用 `process.env.BLOOME_API_KEY` 读取了。**
 
 ---
 
