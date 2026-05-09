@@ -351,7 +351,19 @@ function cleanSSEDataLine(line: string): {
  * against the Bloome LLM proxy.
  */
 app.get(`${API_PREFIX}/models`, (c) => {
+  // If requested by an Anthropic client
+  if (c.req.header("anthropic-version")) {
+    const claudeModels = MODELS.filter(m => isClaudeModel(m.id)).map(m => ({
+      type: "model",
+      id: m.id,
+      display_name: m.id,
+      created_at: new Date(m.created * 1000).toISOString()
+    }));
+    return c.json({ type: "list", data: claudeModels });
+  }
+  // Default OpenAI format
   return c.json({ object: "list", data: MODELS });
+});
 });
 
 /**
@@ -633,7 +645,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
  * GET /v1beta/models
  * Mock Google native model list
  */
-app.get(`${API_PREFIX.replace('/v1', '/v1beta')}/models`, (c) => {
+app.get(`${API_PREFIX.replace(/\/v1\/?$/, '/v1beta')}/models`, (c) => {
   const googleModels = MODELS.filter(m => isGoogleModel(m.id)).map(m => ({
     name: `models/${m.id}`,
     version: "001",
@@ -688,7 +700,7 @@ app.post(`${API_PREFIX}/models/:action`, async (c) => {
 });
 
 
-app.post(`${API_PREFIX.replace('/v1', '/v1beta')}/models/:action`, async (c) => {
+app.post(`${API_PREFIX.replace(/\/v1\/?$/, '/v1beta')}/models/:action`, async (c) => {
   const apiKey = getEnv(c, "BLOOME_API_KEY");
   const action = c.req.param("action");
   const body = await c.req.text();
