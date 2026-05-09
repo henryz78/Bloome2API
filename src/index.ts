@@ -5,8 +5,13 @@ const app = new Hono();
 
 // ========== Configuration ==========
 
+import { env } from "hono/adapter";
+
+const API_PREFIX = process.env.API_PREFIX || "/api/public/v1"; // EdgeSpark requires /api/*
+
 app.use("*", async (c, next) => {
-  const expectedKey = process.env.CLIENT_API_KEY;
+  const { CLIENT_API_KEY } = env<{ CLIENT_API_KEY?: string }>(c);
+  const expectedKey = CLIENT_API_KEY || process.env.CLIENT_API_KEY;
   if (expectedKey) {
     const auth = c.req.header("authorization") || "";
     const token = auth.replace(/^Bearer\s+/i, "");
@@ -324,7 +329,7 @@ function cleanSSEDataLine(line: string): {
  * Returns hardcoded model list. Only includes models tested & confirmed working
  * against the Bloome LLM proxy.
  */
-app.get("/v1/models", (c) => {
+app.get(`${API_PREFIX}/models`, (c) => {
   return c.json({ object: "list", data: MODELS });
 });
 
@@ -340,8 +345,9 @@ app.get("/v1/models", (c) => {
  * Streaming and non-streaming both supported.
  * All responses cleaned to strict OpenAI format.
  */
-app.post("/v1/chat/completions", async (c) => {
-  const apiKey = process.env.BLOOME_API_KEY || "";
+app.post(`${API_PREFIX}/chat/completions`, async (c) => {
+  const { BLOOME_API_KEY } = env<{ BLOOME_API_KEY?: string }>(c);
+  const apiKey = BLOOME_API_KEY || process.env.BLOOME_API_KEY || "";
   const body = await c.req.json().catch(() => null);
   if (!body) {
     return c.json({ error: { message: "Invalid JSON body", type: "invalid_request_error" } }, 400);
@@ -597,8 +603,9 @@ app.post("/v1/chat/completions", async (c) => {
  * Gemini native passthrough.
  * Supports /v1/models/gemini-3.1-pro:generateContent and streamGenerateContent
  */
-app.post("/v1/models/:action", async (c) => {
-  const apiKey = process.env.BLOOME_API_KEY || "";
+app.post(`${API_PREFIX}/models/:action`, async (c) => {
+  const { BLOOME_API_KEY } = env<{ BLOOME_API_KEY?: string }>(c);
+  const apiKey = BLOOME_API_KEY || process.env.BLOOME_API_KEY || "";
   const action = c.req.param("action");
   const body = await c.req.text();
   const url = `${BLOOME_LLM_BASE}/v1/models/${action}` + (c.req.query("alt") ? `?alt=${c.req.query("alt")}` : "");

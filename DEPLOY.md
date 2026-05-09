@@ -77,7 +77,7 @@ bun start
 ### 5.1 模型列表
 
 ```bash
-curl http://localhost:3000/v1/models
+curl http://localhost:3000/api/public/v1/models
 ```
 
 应该返回 JSON，`data` 数组里有模型。**如果列表是空的或者只有 0 个模型，不要慌，继续下一步。**
@@ -85,7 +85,7 @@ curl http://localhost:3000/v1/models
 ### 5.2 测试聊天（先测 Kimi）
 
 ```bash
-curl -X POST http://localhost:3000/v1/chat/completions \
+curl -X POST http://localhost:3000/api/public/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"kimi-k2.6","messages":[{"role":"user","content":"Say hi"}]}'
 ```
@@ -97,7 +97,7 @@ curl -X POST http://localhost:3000/v1/chat/completions \
 ### 5.3 测试 GPT-5.4
 
 ```bash
-curl -X POST http://localhost:3000/v1/chat/completions \
+curl -X POST http://localhost:3000/api/public/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-5.4","messages":[{"role":"user","content":"Say hi"}],"max_tokens":20}'
 ```
@@ -109,7 +109,7 @@ curl -X POST http://localhost:3000/v1/chat/completions \
 ### 5.4 测试 Claude
 
 ```bash
-curl -X POST http://localhost:3000/v1/chat/completions \
+curl -X POST http://localhost:3000/api/public/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"claude-opus-4-7","messages":[{"role":"user","content":"Say hi"}],"max_tokens":20}'
 ```
@@ -121,7 +121,7 @@ curl -X POST http://localhost:3000/v1/chat/completions \
 ### 5.5 测试流式
 
 ```bash
-curl -N -X POST http://localhost:3000/v1/chat/completions \
+curl -N -X POST http://localhost:3000/api/public/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"kimi-k2.6","messages":[{"role":"user","content":"Say hi"}],"stream":true}'
 ```
@@ -140,7 +140,7 @@ curl -N -X POST http://localhost:3000/v1/chat/completions \
 
 ```bash
 # 对每个模型名，跑这个（注意 alias 的精确写法——连字符和点不能搞混）
-curl -X POST http://localhost:3000/v1/chat/completions \
+curl -X POST http://localhost:3000/api/public/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"用户给的模型名","messages":[{"role":"user","content":"hi"}],"max_tokens":5}'
 ```
@@ -177,29 +177,41 @@ curl -X POST http://localhost:3000/v1/chat/completions \
 如果用户要部署到公网（Cloudflare Workers / VPS 等），Base URL 换成对应的公网地址。
 
 
+
 ---
 
 ## 第八步：[询问用户] 获取客户端 API Key 并部署到公网 (EdgeSpark)
 
 **停下来，向用户提问：**
 
-> "本地测试已全部通过。为了让你在外网（如 Rikkahub）能用，我现在把它部署到 EdgeSpark 公网。请告诉我你想要设置的**客户端 API Key**（即当做密码使用）。"
+> "本地测试已全部通过。现在把你想要设置的**客户端 API Key**（即调用密码）发给我，我来部署到 EdgeSpark 公网。"
 
-拿到用户想设置的密码后，开始部署：
+拿到密码后，执行部署：
 
-1. 绑定 EdgeSpark 项目（不要用独立的 edgespark-cli，直接用 bloome-cli）：
+1. 创建项目：
 ```bash
 bloome-cli edgespark project create --alias gateway
 ```
-2. 把 `src/index.ts` 复制到生成的 `edgespark/gateway/server/src/index.ts` 里。
-3. 部署时注入两个环境变量（一个是你的 Bloome Token，一个是用户刚才设置的客户端密码）：
+2. 将代码复制到 EdgeSpark 项目：
 ```bash
-bloome-cli edgespark project deploy --alias gateway --env BLOOME_API_KEY="$RESON_LLM_API_KEY" --env CLIENT_API_KEY="用户给的密码"
+cp src/index.ts edgespark/gateway/server/src/index.ts
+cp package.json edgespark/gateway/server/package.json
 ```
-4. 部署成功后，**把带有 `https://xxx.edgespark.app` 的公网链接发给用户**。
+3. 在 `edgespark/gateway/server/edgespark.toml` 文件的末尾追加环境变量：
+```toml
+[vars]
+BLOOME_API_KEY = "这里填你的真实BLOOME_API_KEY"
+CLIENT_API_KEY = "用户给的密码"
+```
+4. 进入目录并部署：
+```bash
+cd edgespark/gateway/server
+npm install
+EDGESPARK_PROJECT_ENVIRONMENT=production npx edgespark deploy
+```
+5. 轮询健康检查：用 curl 不断请求新生成的 `https://xxx.edgespark.app/api/public/v1/models`，直到返回 200 为止（通常需要 10~15 秒生效）。
+6. 把存活的公网链接发给用户。
 
-
----
 
 ## 关键提醒（Agent 必须牢记）
 
