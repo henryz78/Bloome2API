@@ -46,10 +46,22 @@ app.use("*", async (c, next) => {
 const BLOOME_LLM_BASE = "https://stream.bloome.im/api/llm/proxy/reson";
 
 const MODELS = [
+  { id: "claude-opus-4-7", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-7", parent: null },
+  { id: "claude-opus-4-6", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-6", parent: null },
+  { id: "claude-sonnet-4-6", object: "model", created: 1687882411, owned_by: "reson", root: "claude-sonnet-4-6", parent: null },
+  { id: "claude-haiku-4-5", object: "model", created: 1687882411, owned_by: "reson", root: "claude-haiku-4-5", parent: null },
+  { id: "gpt-5.4", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4", parent: null },
+  { id: "gpt-5.4-mini", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4-mini", parent: null },
+  { id: "glm-5.1", object: "model", created: 1687882411, owned_by: "reson", root: "glm-5.1", parent: null },
   { id: "kimi-k2.6", object: "model", created: 1687882411, owned_by: "reson", root: "kimi-k2.6", parent: null },
   { id: "kimi-k2.5", object: "model", created: 1687882411, owned_by: "reson", root: "kimi-k2.5", parent: null },
-  { id: "gpt-5.4", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4", parent: null },
-  { id: "claude-opus-4-7", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-7", parent: null },{ id: "gemini-3.1-pro", object: "model", created: 1687882411, owned_by: "reson", root: "gemini-3.1-pro", parent: null },
+  { id: "mimo-v2-pro", object: "model", created: 1687882411, owned_by: "reson", root: "mimo-v2-pro", parent: null },
+  { id: "mimo-v2-omni", object: "model", created: 1687882411, owned_by: "reson", root: "mimo-v2-omni", parent: null },
+  { id: "deepseek-v4-pro", object: "model", created: 1687882411, owned_by: "reson", root: "deepseek-v4-pro", parent: null },
+  { id: "deepseek-v4-flash", object: "model", created: 1687882411, owned_by: "reson", root: "deepseek-v4-flash", parent: null },
+  { id: "deepseek-v3-2", object: "model", created: 1687882411, owned_by: "reson", root: "deepseek-v3-2", parent: null },
+  { id: "gemini-3.1-pro", object: "model", created: 1687882411, owned_by: "reson", root: "gemini-3.1-pro", parent: null },
+  { id: "gemini-3-flash", object: "model", created: 1687882411, owned_by: "reson", root: "gemini-3-flash", parent: null }
 ];
 
 // ========== Helpers ==========
