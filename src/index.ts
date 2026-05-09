@@ -365,7 +365,6 @@ app.get(`${API_PREFIX}/models`, (c) => {
   // Default OpenAI format
   return c.json({ object: "list", data: MODELS });
 });
-});
 
 /**
  * POST /v1/chat/completions
