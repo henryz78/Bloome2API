@@ -578,4 +578,38 @@ app.post("/v1/chat/completions", async (c) => {
   });
 });
 
+
+/**
+ * POST /v1/models/:action
+ * Gemini native passthrough.
+ * Supports /v1/models/gemini-3.1-pro:generateContent and streamGenerateContent
+ */
+app.post("/v1/models/:action", async (c) => {
+  const apiKey = process.env.BLOOME_API_KEY || "";
+  const action = c.req.param("action");
+  const body = await c.req.text();
+  const url = `${BLOOME_LLM_BASE}/v1/models/${action}` + (c.req.query("alt") ? `?alt=${c.req.query("alt")}` : "");
+
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body
+  });
+
+  if (!resp.ok) {
+    return new Response(resp.body, { status: resp.status, headers: resp.headers });
+  }
+
+  // Pass through stream or JSON directly
+  return new Response(resp.body, {
+    status: resp.status,
+    headers: {
+      "Content-Type": resp.headers.get("Content-Type") || "application/json"
+    }
+  });
+});
+
 export default app;
