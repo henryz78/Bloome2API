@@ -214,6 +214,60 @@ EDGESPARK_PROJECT_ENVIRONMENT=production npx edgespark deploy
 6. 把存活的公网链接发给用户。
 
 
+## 第九步：热更新（已有 EdgeSpark 项目时）
+
+如果项目已经部署过，且只是：
+
+- 修改 `src/index.ts`
+- 新增或调整 `MODELS` 列表
+- 修复请求转换 / SSE / thinking / reasoning 逻辑
+- 更新 `CLIENT_API_KEY` 或其它运行时变量
+
+那么**不需要重新创建 EdgeSpark 项目**，直接做热更新即可。
+
+### 热更新步骤
+
+1. 确认当前项目别名（本项目默认是 `gateway`）
+2. 把最新代码同步到 EdgeSpark 项目目录：
+```bash
+cp src/index.ts edgespark/gateway/server/src/index.ts
+sed -i '1s/^/import { vars } from "edgespark";
+/' edgespark/gateway/server/src/index.ts
+sed -i 's|// __EDGESPARK_INJECT_VARS__|try { const v = vars.get(key); if (v) return v; } catch(e) {}|' edgespark/gateway/server/src/index.ts
+```
+3. 如有环境变量变更，同步更新：
+```toml
+# edgespark/gateway/edgespark.toml
+[vars]
+BLOOME_API_KEY = "这里填你的真实BLOOME_API_KEY"
+CLIENT_API_KEY = "用户当前想设置的密码"
+```
+4. 进入项目目录并重新部署：
+```bash
+cd edgespark/gateway/server
+npm install
+EDGESPARK_PROJECT_ENVIRONMENT=production npx edgespark deploy
+```
+5. 部署完成后，再次验证：
+```bash
+curl -H "Authorization: Bearer 你的CLIENT_API_KEY" https://你的域名.edgespark.app/api/public/v1/models
+```
+6. **无论 URL 是否变化，都把最新完整公网 API URL 再发给用户确认一次**。
+
+### 什么时候必须重建项目，什么时候只需要热更新
+
+**只需要热更新：**
+- 逻辑修复
+- 模型列表更新
+- thinking / reasoning 适配
+- 文档以外的服务端代码更新
+- API Key 轮换
+
+**需要重新创建项目：**
+- 本地没有 `edgespark/gateway/` 项目目录了
+- 需要换一个全新的 EdgeSpark alias / 项目
+- 旧项目绑定关系失效或必须迁移到新项目
+
 ## 关键提醒（Agent 必须牢记）
 
 1. **模型 alias 的激活机制**：Bloome 的 LLM 代理不是把所有模型都暴露的。用户必须在 Bloome 设置里切到某个模型一次，代理才认得这个 alias。所以每加一个新模型，先让用户切一次，然后你 curl 验证。
