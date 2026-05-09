@@ -603,6 +603,27 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
  * Gemini native passthrough.
  * Supports /v1/models/gemini-3.1-pro:generateContent and streamGenerateContent
  */
+
+/**
+ * POST /messages
+ * Anthropic native passthrough
+ */
+app.post(`${API_PREFIX}/messages`, async (c) => {
+  const { BLOOME_API_KEY } = env<{ BLOOME_API_KEY?: string }>(c);
+  const apiKey = BLOOME_API_KEY || process.env.BLOOME_API_KEY || "";
+  const body = await c.req.text();
+  const resp = await fetch(`${BLOOME_LLM_BASE}/v1/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      "anthropic-version": c.req.header("anthropic-version") || "2023-06-01",
+    },
+    body
+  });
+  return new Response(resp.body, { status: resp.status, headers: { "Content-Type": resp.headers.get("Content-Type") || "application/json" } });
+});
+
 app.post(`${API_PREFIX}/models/:action`, async (c) => {
   const { BLOOME_API_KEY } = env<{ BLOOME_API_KEY?: string }>(c);
   const apiKey = BLOOME_API_KEY || process.env.BLOOME_API_KEY || "";
@@ -630,6 +651,17 @@ app.post(`${API_PREFIX}/models/:action`, async (c) => {
       "Content-Type": resp.headers.get("Content-Type") || "application/json"
     }
   });
+});
+
+
+app.post(`${API_PREFIX.replace('/v1', '/v1beta')}/models/:action`, async (c) => {
+  const { BLOOME_API_KEY } = env<{ BLOOME_API_KEY?: string }>(c);
+  const apiKey = BLOOME_API_KEY || process.env.BLOOME_API_KEY || "";
+  const action = c.req.param("action");
+  const body = await c.req.text();
+  const url = `${BLOOME_LLM_BASE}/v1/models/${action}` + (c.req.query("alt") ? `?alt=${c.req.query("alt")}` : "");
+  const resp = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }, body });
+  return new Response(resp.body, { status: resp.status, headers: { "Content-Type": resp.headers.get("Content-Type") || "application/json" } });
 });
 
 export default app;
