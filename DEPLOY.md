@@ -176,6 +176,29 @@ curl -X POST http://localhost:3000/v1/chat/completions \
 
 如果用户要部署到公网（Cloudflare Workers / VPS 等），Base URL 换成对应的公网地址。
 
+
+---
+
+## 第八步：[询问用户] 获取客户端 API Key 并部署到公网 (EdgeSpark)
+
+**停下来，向用户提问：**
+
+> "本地测试已全部通过。为了让你在外网（如 Rikkahub）能用，我现在把它部署到 EdgeSpark 公网。请告诉我你想要设置的**客户端 API Key**（即当做密码使用）。"
+
+拿到用户想设置的密码后，开始部署：
+
+1. 绑定 EdgeSpark 项目（不要用独立的 edgespark-cli，直接用 bloome-cli）：
+```bash
+bloome-cli edgespark project create --alias gateway
+```
+2. 把 `src/index.ts` 复制到生成的 `edgespark/gateway/server/src/index.ts` 里。
+3. 部署时注入两个环境变量（一个是你的 Bloome Token，一个是用户刚才设置的客户端密码）：
+```bash
+bloome-cli edgespark project deploy --alias gateway --env BLOOME_API_KEY="$RESON_LLM_API_KEY" --env CLIENT_API_KEY="用户给的密码"
+```
+4. 部署成功后，**把带有 `https://xxx.edgespark.app` 的公网链接发给用户**。
+
+
 ---
 
 ## 关键提醒（Agent 必须牢记）
