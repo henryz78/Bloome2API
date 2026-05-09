@@ -7,11 +7,32 @@ const app = new Hono();
 
 import { env } from "hono/adapter";
 
+
+function getEnv<T extends string>(c: any, key: T): string {
+  // 1. Try Hono's universal env adapter (Cloudflare standard)
+  let val = env<Record<T, string>>(c)[key];
+  if (val) return val;
+  // 2. Try Node's process.env (Local dev)
+  if (typeof process !== "undefined" && process.env && process.env[key]) {
+    return process.env[key] as string;
+  }
+  // 3. Try EdgeSpark's proprietary vars.get() via dynamic check
+  // Since EdgeSpark exposes a global `vars` object to workers sometimes
+  try {
+    // @ts-ignore
+    if (typeof vars !== "undefined" && typeof vars.get === "function") {
+      // @ts-ignore
+      val = vars.get(key);
+      if (val) return val;
+    }
+  } catch (e) {}
+  return "";
+}
+
 const API_PREFIX = process.env.API_PREFIX || "/api/public/v1"; // EdgeSpark requires /api/*
 
 app.use("*", async (c, next) => {
-  const { CLIENT_API_KEY } = env<{ CLIENT_API_KEY?: string }>(c);
-  const expectedKey = CLIENT_API_KEY || process.env.CLIENT_API_KEY;
+  const expectedKey = getEnv(c, "CLIENT_API_KEY");
   if (expectedKey) {
     const auth = c.req.header("authorization") || "";
     const token = auth.replace(/^Bearer\s+/i, "");
@@ -346,8 +367,7 @@ app.get(`${API_PREFIX}/models`, (c) => {
  * All responses cleaned to strict OpenAI format.
  */
 app.post(`${API_PREFIX}/chat/completions`, async (c) => {
-  const { BLOOME_API_KEY } = env<{ BLOOME_API_KEY?: string }>(c);
-  const apiKey = BLOOME_API_KEY || process.env.BLOOME_API_KEY || "";
+  const apiKey = getEnv(c, "BLOOME_API_KEY");
   const body = await c.req.json().catch(() => null);
   if (!body) {
     return c.json({ error: { message: "Invalid JSON body", type: "invalid_request_error" } }, 400);
@@ -609,8 +629,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
  * Anthropic native passthrough
  */
 app.post(`${API_PREFIX}/messages`, async (c) => {
-  const { BLOOME_API_KEY } = env<{ BLOOME_API_KEY?: string }>(c);
-  const apiKey = BLOOME_API_KEY || process.env.BLOOME_API_KEY || "";
+  const apiKey = getEnv(c, "BLOOME_API_KEY");
   const body = await c.req.text();
   const resp = await fetch(`${BLOOME_LLM_BASE}/v1/messages`, {
     method: "POST",
@@ -625,8 +644,7 @@ app.post(`${API_PREFIX}/messages`, async (c) => {
 });
 
 app.post(`${API_PREFIX}/models/:action`, async (c) => {
-  const { BLOOME_API_KEY } = env<{ BLOOME_API_KEY?: string }>(c);
-  const apiKey = BLOOME_API_KEY || process.env.BLOOME_API_KEY || "";
+  const apiKey = getEnv(c, "BLOOME_API_KEY");
   const action = c.req.param("action");
   const body = await c.req.text();
   const url = `${BLOOME_LLM_BASE}/v1/models/${action}` + (c.req.query("alt") ? `?alt=${c.req.query("alt")}` : "");
@@ -655,8 +673,7 @@ app.post(`${API_PREFIX}/models/:action`, async (c) => {
 
 
 app.post(`${API_PREFIX.replace('/v1', '/v1beta')}/models/:action`, async (c) => {
-  const { BLOOME_API_KEY } = env<{ BLOOME_API_KEY?: string }>(c);
-  const apiKey = BLOOME_API_KEY || process.env.BLOOME_API_KEY || "";
+  const apiKey = getEnv(c, "BLOOME_API_KEY");
   const action = c.req.param("action");
   const body = await c.req.text();
   const url = `${BLOOME_LLM_BASE}/v1/models/${action}` + (c.req.query("alt") ? `?alt=${c.req.query("alt")}` : "");
