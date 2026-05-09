@@ -12,13 +12,18 @@ const MODELS = [
   { id: "kimi-k2.6", object: "model", created: 1687882411, owned_by: "reson", root: "kimi-k2.6", parent: null },
   { id: "kimi-k2.5", object: "model", created: 1687882411, owned_by: "reson", root: "kimi-k2.5", parent: null },
   { id: "gpt-5.4", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4", parent: null },
-  { id: "claude-opus-4-7", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-7", parent: null },
+  { id: "claude-opus-4-7", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-7", parent: null },{ id: "gemini-3.1-pro", object: "model", created: 1687882411, owned_by: "reson", root: "gemini-3.1-pro", parent: null },
 ];
 
 // ========== Helpers ==========
 
 function isClaudeModel(model: string): boolean {
   return typeof model === "string" && model.toLowerCase().startsWith("claude");
+}
+
+
+function isGoogleModel(model: string): boolean {
+  return typeof model === "string" && model.toLowerCase().startsWith("gemini");
 }
 
 function isReasoningModel(model: string): boolean {
@@ -118,6 +123,68 @@ function anthropicToOpenaiResponse(data: any): any {
       completion_tokens: completionTokens,
       total_tokens: promptTokens + completionTokens,
     },
+  };
+}
+
+
+// ========== Google Gemini (Vertex) conversion ==========
+
+function openaiToGoogleRequest(body: any): any {
+  const out: any = { contents: [], generationConfig: {} };
+  if (body.temperature !== undefined) out.generationConfig.temperature = body.temperature;
+  if (body.top_p !== undefined) out.generationConfig.topP = body.top_p;
+  if (body.max_tokens ?? body.max_completion_tokens) {
+    out.generationConfig.maxOutputTokens = body.max_tokens ?? body.max_completion_tokens;
+  }
+  if (body.stop) {
+    out.generationConfig.stopSequences = Array.isArray(body.stop) ? body.stop : [body.stop];
+  }
+  if (Array.isArray(body.messages)) {
+    for (const m of body.messages) {
+      if (!m || typeof m !== "object") continue;
+      let text = "";
+      if (typeof m.content === "string") text = m.content;
+      else if (Array.isArray(m.content)) {
+        text = m.content.filter((p:any) => p && (p.type === "text" || typeof p === "string"))
+          .map((p:any) => typeof p === "string" ? p : (p.text || "")).join("");
+      }
+      if (m.role === "system") {
+        out.systemInstruction = { role: "user", parts: [{ text }] };
+        continue;
+      }
+      out.contents.push({ role: m.role === "assistant" ? "model" : "user", parts: [{ text }] });
+    }
+  }
+  return out;
+}
+
+function mapGoogleFinishReason(reason: string | null | undefined): string | null {
+  if (!reason) return null;
+  switch (reason.toUpperCase()) {
+    case "STOP": return "stop";
+    case "MAX_TOKENS": return "length";
+    case "SAFETY": return "content_filter";
+    default: return reason.toLowerCase();
+  }
+}
+
+function googleToOpenaiResponse(data: any): any {
+  if (!data || typeof data !== "object") return data;
+  if (data.error) return data;
+  const candidate = data.candidates?.[0];
+  let text = "";
+  if (candidate?.content?.parts) {
+    text = candidate.content.parts.map((p:any) => p.text || "").join("");
+  }
+  const pTok = data.usageMetadata?.promptTokenCount || 0;
+  const cTok = data.usageMetadata?.candidatesTokenCount || 0;
+  return {
+    id: data.responseId || "",
+    object: "chat.completion",
+    created: data.createTime ? Math.floor(new Date(data.createTime).getTime()/1000) : Math.floor(Date.now()/1000),
+    model: data.modelVersion || "",
+    choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: mapGoogleFinishReason(candidate?.finishReason) }],
+    usage: { prompt_tokens: pTok, completion_tokens: cTok, total_tokens: pTok + cTok }
   };
 }
 
@@ -372,6 +439,82 @@ app.post("/v1/chat/completions", async (c) => {
           }
         }
         if (curEvent) await flush();
+        await stream.write("data: [DONE]\n\n");
+      } finally {
+        reader.releaseLock();
+        await stream.close();
+      }
+    });
+  }
+
+
+  // ===== Branch 3: Google (Gemini via Vertex) =====
+  if (isGoogleModel(body.model)) {
+    const googleBody = openaiToGoogleRequest(body);
+    const upstreamHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    };
+    if (!isStream) {
+      const resp = await fetch(`${BLOOME_LLM_BASE}/v1/models/${body.model}:generateContent`, {
+        method: "POST", headers: upstreamHeaders, body: JSON.stringify(googleBody)
+      });
+      const upstream: any = await resp.json().catch(() => ({ error: { message: "Upstream error" } }));
+      return c.json(upstream.error ? upstream : googleToOpenaiResponse(upstream), resp.status as any);
+    }
+    return streamSSE(c, async (stream) => {
+      const resp = await fetch(`${BLOOME_LLM_BASE}/v1/models/${body.model}:streamGenerateContent?alt=sse`, {
+        method: "POST", headers: upstreamHeaders, body: JSON.stringify(googleBody)
+      });
+      if (!resp.ok || !resp.body) {
+        const text = await resp.text();
+        await stream.write(`data: ${JSON.stringify({ error: { message: text, type: "upstream_error" } })}\n\n`);
+        await stream.close();
+        return;
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let chunkId = "", chunkModel = body.model, roleSent = false;
+      
+      const writeChunk = async (delta: any, finish_reason: string | null = null, usage: any = null) => {
+        const obj: any = {
+          id: chunkId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000),
+          model: chunkModel, choices: [{ index: 0, delta, finish_reason, logprobs: null }]
+        };
+        if (usage) obj.usage = usage;
+        await stream.write("data: " + JSON.stringify(obj) + "\n\n");
+      };
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let nl: number;
+          while ((nl = buffer.indexOf("\n")) !== -1) {
+            const line = buffer.slice(0, nl).replace(/\r$/, "");
+            buffer = buffer.slice(nl + 1);
+            if (line.startsWith("data:")) {
+              const jsonStr = line.slice(5).trim();
+              if (!jsonStr) continue;
+              try {
+                const d = JSON.parse(jsonStr);
+                const candidate = d.candidates?.[0];
+                const textDelta = candidate?.content?.parts?.[0]?.text || "";
+                const finishReason = candidate?.finishReason;
+                chunkId = d.responseId || chunkId;
+                chunkModel = d.modelVersion || chunkModel;
+                if (!roleSent) { await writeChunk({ role: "assistant", content: "" }); roleSent = true; }
+                if (textDelta) await writeChunk({ content: textDelta });
+                if (finishReason || d.usageMetadata) {
+                  const usage = d.usageMetadata ? { prompt_tokens: d.usageMetadata.promptTokenCount || 0, completion_tokens: d.usageMetadata.candidatesTokenCount || 0, total_tokens: d.usageMetadata.totalTokenCount || 0 } : null;
+                  await writeChunk({}, mapGoogleFinishReason(finishReason) || "stop", usage);
+                }
+              } catch (e) {}
+            }
+          }
+        }
         await stream.write("data: [DONE]\n\n");
       } finally {
         reader.releaseLock();
