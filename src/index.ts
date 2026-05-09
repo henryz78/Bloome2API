@@ -6,9 +6,10 @@ const app = new Hono();
 // ========== Configuration ==========
 
 import { env } from "hono/adapter";
+import type { Context } from "hono";
 
 
-function getEnv<T extends string>(c: any, key: T): string {
+function getEnv<T extends string>(c: Context, key: T): string {
   // 1. Try Hono's universal env adapter (Cloudflare standard)
   let val = env<Record<T, string>>(c)[key];
   if (val) return val;
@@ -29,7 +30,8 @@ function getEnv<T extends string>(c: any, key: T): string {
   return "";
 }
 
-const API_PREFIX = process.env.API_PREFIX || "/api/public/v1"; // EdgeSpark requires /api/*
+const API_PREFIX = process.env.API_PREFIX || "/api/public/v1";
+app.get("/api/public/v1/health", (c) => c.json({ status: "ok" })); // EdgeSpark requires /api/*
 
 app.use("*", async (c, next) => {
   const expectedKey = getEnv(c, "CLIENT_API_KEY");
@@ -45,7 +47,6 @@ app.use("*", async (c, next) => {
 
 
 const BLOOME_LLM_BASE = "https://stream.bloome.im/api/llm/proxy/reson";
-const BLOOME_API_KEY = process.env.BLOOME_API_KEY || "";
 
 const MODELS = [
   { id: "kimi-k2.6", object: "model", created: 1687882411, owned_by: "reson", root: "kimi-k2.6", parent: null },
@@ -380,6 +381,7 @@ app.get(`${API_PREFIX}/models`, (c) => {
  */
 app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   const apiKey = getEnv(c, "BLOOME_API_KEY");
+  if (!apiKey) return c.json({ error: { message: "Server not configured", type: "server_error" } }, 500);
   const body = await c.req.json().catch(() => null);
   if (!body) {
     return c.json({ error: { message: "Invalid JSON body", type: "invalid_request_error" } }, 400);
@@ -658,6 +660,7 @@ app.get(`${API_PREFIX.replace(/\/v1\/?$/, '/v1beta')}/models`, (c) => {
 
 app.post(`${API_PREFIX}/messages`, async (c) => {
   const apiKey = getEnv(c, "BLOOME_API_KEY");
+  if (!apiKey) return c.json({ error: { message: "Server not configured", type: "server_error" } }, 500);
   const body = await c.req.text();
   const resp = await fetch(`${BLOOME_LLM_BASE}/v1/messages`, {
     method: "POST",
@@ -673,6 +676,7 @@ app.post(`${API_PREFIX}/messages`, async (c) => {
 
 app.post(`${API_PREFIX}/models/:action`, async (c) => {
   const apiKey = getEnv(c, "BLOOME_API_KEY");
+  if (!apiKey) return c.json({ error: { message: "Server not configured", type: "server_error" } }, 500);
   const action = c.req.param("action");
   const body = await c.req.text();
   const url = `${BLOOME_LLM_BASE}/v1/models/${action}` + (c.req.query("alt") ? `?alt=${c.req.query("alt")}` : "");
@@ -702,6 +706,7 @@ app.post(`${API_PREFIX}/models/:action`, async (c) => {
 
 app.post(`${API_PREFIX.replace(/\/v1\/?$/, '/v1beta')}/models/:action`, async (c) => {
   const apiKey = getEnv(c, "BLOOME_API_KEY");
+  if (!apiKey) return c.json({ error: { message: "Server not configured", type: "server_error" } }, 500);
   const action = c.req.param("action");
   const body = await c.req.text();
   const url = `${BLOOME_LLM_BASE}/v1/models/${action}` + (c.req.query("alt") ? `?alt=${c.req.query("alt")}` : "");
