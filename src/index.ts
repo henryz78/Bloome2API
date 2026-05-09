@@ -5,6 +5,19 @@ const app = new Hono();
 
 // ========== Configuration ==========
 
+app.use("*", async (c, next) => {
+  const expectedKey = process.env.CLIENT_API_KEY;
+  if (expectedKey) {
+    const auth = c.req.header("authorization") || "";
+    const token = auth.replace(/^Bearer\s+/i, "");
+    if (token !== expectedKey) {
+      return c.json({ error: { message: "Invalid API key", type: "authentication_error" } }, 401);
+    }
+  }
+  await next();
+});
+
+
 const BLOOME_LLM_BASE = "https://stream.bloome.im/api/llm/proxy/reson";
 const BLOOME_API_KEY = process.env.BLOOME_API_KEY || "";
 
