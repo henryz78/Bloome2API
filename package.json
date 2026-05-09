@@ -1,7 +1,7 @@
 {
-  "name": "bloome-llm-gateway",
+  "name": "bloome2api",
   "version": "1.0.0",
-  "description": "OpenAI-compatible API gateway for Bloome's built-in LLM provider. Supports Kimi, GPT-5.4, and Claude Opus 4.7 with automatic format translation.",
+  "description": "OpenAI-compatible API gateway for Bloome's built-in LLM provider. Auto-translates Claude requests to Anthropic format, fixes GPT-5.x parameter issues, and cleans non-standard upstream fields.",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

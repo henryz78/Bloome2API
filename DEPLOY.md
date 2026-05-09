@@ -1,135 +1,204 @@
-# Prompt: Deploy This Bloome LLM Gateway
+# DEPLOY.md — Agent 操作手册
 
-> 把这整份文件直接发给 AI Agent。Agent 应该能独立完成部署、扩展和维护。
+> 你是 AI Agent。读完本文件后，按顺序逐步执行。**不要跳步、不要猜测、不要自作主张。**
+> 遇到 `[询问用户]` 标记时，停下来向用户提问，拿到答案后再继续。
 
 ---
 
-## 项目背景
+## 第一步：了解项目
 
-这是一个 **OpenAI 兼容 API 网关**，将 Bloome 的内置 LLM 代理（`stream.bloome.im/api/llm/proxy/reson`）以标准 OpenAI 格式暴露给外部客户端使用。
+先读完 `src/index.ts`，理解它做了什么：
 
-核心文件：`src/index.ts`（Hono 框架，~380 行）。
+- `GET /v1/models` — 返回可用模型列表
+- `POST /v1/chat/completions` — OpenAI 兼容的聊天接口，支持流式和非流式
+- 对 `claude-*` 模型：自动把 OpenAI 请求转成 Anthropic 格式，调上游的 `/v1/messages`，再把响应转回来
+- 对 `gpt-5.x` / `o` 系列模型：自动把 `max_tokens` 改写成 `max_completion_tokens`
+- 清洗上游返回的脏数据（去空 chunk、提 usage、去 system_fingerprint）
 
-## 它做了什么
+不要改代码。先看懂。
 
-| 功能 | 说明 |
-|------|------|
-| 模型列表 | `GET /v1/models` 返回可用模型 |
-| OpenAI 格式代理 | `POST /v1/chat/completions` 支持流式和非流式 |
-| Claude 自动翻译 | 请求 Claude 时自动 OpenAI ↔ Anthropic 双向转换 |
-| GPT-5.x 参数修正 | `max_tokens` 自动改写为 `max_completion_tokens` |
-| 响应清洗 | 去除非标字段、修复 SSE 格式 |
+---
 
-## 关键发现（Bloome 后端行为）
+## 第二步：确认运行环境
 
-这些是通过反复测试总结的，后续 Agent 必须牢记：
+检查用户的机器上有没有 Bun：
 
-### 模型可用性
+```bash
+bun --version
+```
 
-- **Bloome LLM 代理的模型 alias 和 Bloome 聊天界面的模型选择是两套独立系统**
-- 代理端点只识别被 "激活过" 的模型名
-- **激活方法**：去 Bloome 设置里把当前会话模型切到目标模型一次，代理就会认得那个 alias
-- 激活后不会自动失效——切到其他模型，之前激活过的还都能用
-- **因此上线前必须在 Bloome 里把每个要支持的模型都切一遍**
+如果没有，安装：
 
-### 后端响应特征（kimi-k2.6 实测）
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
 
-| 行为 | 非流式 | 流式 |
-|------|--------|------|
-| `content` 字段 | 有正文 | **永远为空** |
-| `reasoning_content` | 有思考链 | 有实际 token（正文在这里） |
-| 额外字段 | `cached_tokens`（顶层）| `system_fingerprint` |
-| SSE 尾部 | — | 多发一个 `choices: []` 空 chunk |
+---
 
-### GPT-5.4 实测
+## 第三步：[询问用户] 获取 API Key
 
-- `max_tokens` 不支持，必须用 `max_completion_tokens`
-- 连字符写 `gpt-5.4`，不是 `gpt-5-4`
+**停下来，向用户提问：**
 
-### Claude 实测
+> "我需要你的 Bloome API Key 才能让网关代理请求。这个 Key 在你 Bloome 的环境变量里可以找到（通常是 `RESON_LLM_API_KEY` 或者 Agent 的 runtime token）。请把 Key 发给我。"
 
-- **代理同时支持 `/v1/chat/completions`（OpenAI）和 `/v1/messages`（Anthropic）两个端点**
-- Claude 只能用 `/v1/messages`，走 `/v1/chat/completions` 会报 "Provider type Bedrock does not belong to OpenAI family"
-- Model alias 用**连字符**：`claude-opus-4-7`，不是 `claude-opus-4.7`
-- 需要在请求头带 `anthropic-version: 2023-06-01`
+拿到后，设环境变量：
 
-## 绝对不要做的事
+```bash
+export BLOOME_API_KEY="用户给的Key"
+```
 
-- ❌ 猜测模型名加入列表——必须逐个 curl 测试确认
-- ❌ 把 `reasoning_content` 映射到 `content`——G禁止内容偷换字段，思考链和正文必须保持分离
-- ❌ 流式清洗时保留 `choices: []` 的空 chunk——部分客户端会报 `JsonArray is not JsonObject`
-- ❌ 让 `usage` 嵌套在 `choice` 里——提取到顶层才是 OpenAI 标准
-- ❌ Claude 调用时省略 `anthropic-version` 头——必填
-- ❌ 想当然以为 "切了模型就能测"——必须切完再测，因为 DNS/TTL 和分布式 Worker 坑很多
+同时在项目根目录创建 `.env` 文件：
 
-## 响应清洗 checklist（Agent 必须在代码里实现）
+```
+BLOOME_API_KEY=用户给的Key
+```
 
-### 非流式
+**⚠️ 注意：绝对不要把这个 Key 硬编码进 `src/index.ts`。代码里已经用 `process.env.BLOOME_API_KEY` 读取了。**
 
-1. 只保留标准字段：`id`, `object`, `created`, `model`, `choices`, `usage`
-2. `choices[*].message` 里只保留 `role`, `content`, `reasoning_content`
-3. 移除 `cached_tokens`（顶层）、`system_fingerprint`
+---
 
-### 流式（SSE）
+## 第四步：安装依赖
 
-1. 每个 `data:` 行解析 JSON，清洗后重新序列化
-2. `choices[*].delta` 只保留 `role`, `content`, `reasoning_content`
-3. 丢弃 `choices: []` 的空 chunk（return null）
-4. 把 `choice.usage` 提取到顶层 `usage`
-5. 添加 `logprobs: null`
-6. 以 `data: [DONE]\n\n` 结束
+```bash
+cd 项目根目录
+bun install
+```
 
-### Claude 流式（Anthropic SSE → OpenAI SSE）
+---
 
-1. 解析 `event:` / `data:` 对
-2. `message_start` → 发 role chunk
-3. `content_block_delta` → 发 content chunk
-4. `message_delta` → 记录 stop_reason 和 usage
-5. `message_stop` → 发 final chunk（含 finish_reason 和 usage）后 `[DONE]`
-6. stop_reason 映射：`end_turn`→`stop`, `max_tokens`→`length`
+## 第五步：启动并验证
 
-## 修改后验证 checklist
+```bash
+bun start
+```
 
-每次改动后必须跑：
+默认跑在 3000 端口。另开一个终端，逐条跑下面的验证：
 
-1. `curl /v1/models` → 返回 JSON array
-2. `curl -X POST .../v1/chat/completions -d '{"model":"kimi-k2.6","messages":[{"role":"user","content":"hi"}]}'` → 正常非流式响应
-3. 加 `"stream":true` 同上 → SSE 每行 data: 开头，无 choices: [] 空 chunk
-4. `model":"claude-opus-4-7"` 同上 → 正常返回（非流式 + 流式都测）
-5. `model":"gpt-5.4"` 同上 → `max_tokens` 参数不报错
+### 5.1 模型列表
 
-## 客户端配置
+```bash
+curl http://localhost:3000/v1/models
+```
+
+应该返回 JSON，`data` 数组里有模型。**如果列表是空的或者只有 0 个模型，不要慌，继续下一步。**
+
+### 5.2 测试聊天（先测 Kimi）
+
+```bash
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"kimi-k2.6","messages":[{"role":"user","content":"Say hi"}]}'
+```
+
+如果返回 `Model alias not found`，说明用户在 Bloome 那边没有切到过这个模型。**让用户去 Bloome 设置 → 把当前模型切到 `kimi-k2.6` → 切完之后你重试。**
+
+如果返回正常 JSON 带 `choices`，✅ 通过。
+
+### 5.3 测试 GPT-5.4
+
+```bash
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-5.4","messages":[{"role":"user","content":"Say hi"}],"max_tokens":20}'
+```
+
+如果返回 `Model alias not found`，**让用户去 Bloome 设置切到 `gpt-5.4`**，然后重试。
+
+如果正常返回，✅ 通过。
+
+### 5.4 测试 Claude
+
+```bash
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude-opus-4-7","messages":[{"role":"user","content":"Say hi"}],"max_tokens":20}'
+```
+
+如果返回 `Model alias not found`，**让用户去 Bloome 设置切到 `claude-opus-4-7`**（注意是连字符），然后重试。
+
+如果正常返回，✅ 通过。
+
+### 5.5 测试流式
+
+```bash
+curl -N -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"kimi-k2.6","messages":[{"role":"user","content":"Say hi"}],"stream":true}'
+```
+
+应该看到逐行输出的 `data:` chunk，最后以 `data: [DONE]` 结束。**中途不应出现 `choices:[]` 的空行。**
+
+---
+
+## 第六步：[询问用户] 扩展模型列表
+
+**停下来，向用户提问：**
+
+> "目前代码里预置了 4 个模型名：kimi-k2.6、kimi-k2.5、gpt-5.4、claude-opus-4-7。你还想支持哪些模型？把模型名列给我。"
+
+用户给列表后，**逐个测试**：
+
+```bash
+# 对每个模型名，跑这个（注意 alias 的精确写法——连字符和点不能搞混）
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"用户给的模型名","messages":[{"role":"user","content":"hi"}],"max_tokens":5}'
+```
+
+**测试规则：**
+
+- ✅ 返回正常 JSON（不管 content 有没有内容）→ 表示 alias 有效
+- ❌ 返回 `Model alias 'xxx' not found` → 让用户去 Bloome 设置里切到这个模型，切完你再重试
+- ❌ 用户切了之后还是 `not found` → alias 名可能写错了，问用户精确的模型名
+
+**对每个测试通过的模型：**
+
+1. 打开 `src/index.ts`，找到 `MODELS` 数组
+2. 按同样格式追加一条：
+
+```ts
+{ id: "模型名", object: "model", created: 1687882411, owned_by: "reson", root: "模型名", parent: null },
+```
+
+3. **同时测试流式**：加 `"stream":true` 再跑一次，确认 SSE 输出正常
+
+---
+
+## 第七步：让用户在客户端配置
+
+全部模型测试通过后，告诉用户客户端配置：
 
 | 设置项 | 值 |
 |--------|-----|
-| Base URL | `http(s)://<host>/` |
-| API Key | 任意值或留空 |
-| 模型 | `kimi-k2.6` / `kimi-k2.5` / `gpt-5.4` / `claude-opus-4-7` |
+| Base URL | `http://localhost:3000` |
+| API Key | 任意值（网关不校验客户端 key） |
+| 模型 | 刚才验证通过的那些模型名 |
 
-## 故障排查速查
-
-| 症状 | 原因 | 修复 |
-|------|------|------|
-| `JsonArray is not JsonObject` | Bloome 发了 `choices: []` 空 chunk | 清洗代码里过滤掉 |
-| 流式输出为空 | `delta.content` 为空，实际在 `reasoning_content` | 保持 reasoning_content 独立字段 |
-| `Model alias not found` | 模型名未激活或不匹配 | 去 Bloome 切一次该模型，确认 alias 精确写法 |
-| GPT-5.4 报 `unsupported_parameter` | `max_tokens` 不被支持 | 自动改写为 `max_completion_tokens` |
-| Claude 报 "not belong to OpenAI family" | 走了 chat/completions 端点 | 必须转发到 `/v1/messages` |
-| `max_tokens: field required` (Claude) | Anthropic 要求必填 max_tokens | 转换时给默认值 4096 |
+如果用户要部署到公网（Cloudflare Workers / VPS 等），Base URL 换成对应的公网地址。
 
 ---
 
-## 扩展新模型的标准流程
+## 关键提醒（Agent 必须牢记）
 
-```
-1. 去 Bloome 设置 → 切到目标模型 → 确认切换成功
-2. curl 测试: {"model":"<alias>","messages":[{"role":"user","content":"hi"}],"max_tokens":5}
-3. 如果成功 → 记录 alias 精确写法（连字符/小数点）
-4. 如果失败 → 尝试变体（- vs .、版本号有无）
-5. 同时测试流式: 加 "stream":true
-6. 观察响应特征: 是否需要参数修正（如 max_completion_tokens）
-7. 如果是 Claude 类 → 测试 /v1/messages 端点
-8. 确认后加入 MODELS 列表
-9. 重新部署
-10. 跑完整验证 checklist
-```
+1. **模型 alias 的激活机制**：Bloome 的 LLM 代理不是把所有模型都暴露的。用户必须在 Bloome 设置里切到某个模型一次，代理才认得这个 alias。所以每加一个新模型，先让用户切一次，然后你 curl 验证。
+
+2. **alias 的精确写法**：`claude-opus-4-7`（连字符）≠ `claude-opus-4.7`（点）。`gpt-5.4`（点）≠ `gpt-5-4`（连字符）。用不对就报 `Model alias not found`。
+
+3. **不要偷换字段**：Kimi 在流式模式下 `delta.content` 为空、内容在 `delta.reasoning_content` 里。**保持原样**，不要映射。代码里的 clean 逻辑已经正确处理了。
+
+4. **不要去掉 SSE 清洗**：`cleanSSEDataLine` 函数里那个 `choices.length === 0` 返回 null 的逻辑**不能删**。删了客户端会报 `JsonArray is not JsonObject`。
+
+5. **GPT-5.x 的参数问题**：`max_tokens` 不支持，必须用 `max_completion_tokens`。代码里 `isReasoningModel` 函数已经做了自动改写，不删就行。
+
+6. **Claude 只能走 `/v1/messages`**：不要试图用 `/v1/chat/completions` 端点调 Claude。代码里 `isClaudeModel` 判断已经自动转发到正确端点。
+
+---
+
+## 不要做的事
+
+- ❌ 把 API key 写死在代码里
+- ❌ 猜测模型名然后加到列表里——必须逐个 curl 验证
+- ❌ 删掉 `cleanSSEDataLine` 里的空 choices 过滤
+- ❌ 把 `reasoning_content` 映射到 `content`
+- ❌ Claude 请求不带 `anthropic-version` 头
+- ❌ 跳过第七步的流式验证

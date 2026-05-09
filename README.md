@@ -1,60 +1,49 @@
-# Bloome LLM Gateway
+# Bloome2API
 
-A portable OpenAI-compatible API gateway that proxies **Bloome's built-in LLM provider** to standard clients.
+一个便携的 OpenAI 兼容 API 网关，把 Bloome 的内置 LLM 代理转成标准 OpenAI 格式，供任何支持 OpenAI API 的客户端使用。
 
-## What It Does
+## 能做什么
 
-Turns `https://stream.bloome.im/api/llm/proxy/reson` into a clean, standard-compatible endpoint:
+- 在 Rikkahub / OpenWebUI / Cursor / LobeChat 等客户端里用 Bloome 的模型
+- 自动处理 Claude 的格式转换（OpenAI ↔ Anthropic）
+- 自动修复 GPT-5.x 的参数不兼容
+- 清洗上游响应的非标准字段
 
-| Route | Description |
-|-------|-------------|
-| `GET /v1/models` | List available models |
-| `POST /v1/chat/completions` | OpenAI-format chat completions (stream + non-stream) |
+## 支持哪些模型
 
-## Supported Models
+**不在代码里写死。** Bloome 的 LLM 代理有一个激活机制：你在 Bloome 设置里切到某个模型一次，那个模型的 alias 才能通过代理访问。
 
-| Model | Notes |
-|-------|-------|
-| `kimi-k2.6` | Works via OpenAI format |
-| `kimi-k2.5` | Aliases to kimi-k2.6 |
-| `gpt-5.4` | `max_tokens` auto-rewritten to `max_completion_tokens` |
-| `claude-opus-4-7` | Automatically translated to/from Anthropic Messages format |
+所以流程是：
+1. 去 Bloome 设置，切到你想用的模型
+2. curl 测试确认代理能认
+3. 把 alias 加到 `src/index.ts` 的 `MODELS` 数组里
 
-## Key Features
+详细步骤见 `DEPLOY.md`。
 
-- **Claude auto-translation**: Send OpenAI-format requests with `claude-opus-4-7`, the gateway translates to Anthropic Messages and back (streaming supported)
-- **Non-standard field cleanup**: Strips `system_fingerprint`, drops trailing `choices: []` SSE chunks, hoists nested `usage` to top-level
-- **`reasoning_content` preserved**: Thinking chains kept in their own field, never mapped to `content`
-
-## Quick Start
+## 快速开始
 
 ```bash
-# Install
+# 安装
 bun install
 
-# Set your Bloome agent key
-export BLOOME_API_KEY="your-key-here"
+# 设 API Key（从你的 Bloome 环境变量获取）
+export BLOOME_API_KEY="你的Key"
 
-# Run (defaults to port 3000)
+# 启动（默认 3000 端口）
 bun start
 ```
 
-## Client Configuration
+## 客户端配置
 
-| Field | Value |
-|-------|-------|
+| 设置项 | 值 |
+|--------|-----|
 | Base URL | `http://localhost:3000` |
-| API Key | Any value (or leave empty) |
-| Model | `kimi-k2.6` / `kimi-k2.5` / `gpt-5.4` / `claude-opus-4-7` |
+| API Key | 任意值 |
+| 模型 | 你验证过的那些 |
 
-## Model Availability
+## 文件说明
 
-The Bloome LLM proxy only recognizes models that have been **selected at least once** in the Bloome runtime config. If a model returns `Model alias not found`, go to Bloome settings and switch to that model temporarily — the alias will then be available through the proxy.
-
-## Deployment
-
-This is a standard Hono app. Deploy anywhere that runs Bun/Node:
-
-- **Cloudflare Workers**: wrap with `hono/cloudflare-workers`
-- **EdgeSpark**: add `bloome-bridge.ts` (see `prompts/llm-gateway-deploy.md`)
-- **Vercel / Railway / Fly.io**: standard Node.js deployment
+| 文件 | 用途 |
+|------|------|
+| `src/index.ts` | 后端全部代码 |
+| `DEPLOY.md` | Agent 部署操作手册（发给 AI Agent 用的） |
