@@ -192,12 +192,11 @@ curl -X POST http://localhost:3000/api/public/v1/chat/completions \
 ```bash
 bloome-cli edgespark project create --alias gateway
 ```
-2. 将代码复制到 EdgeSpark 项目，并注入 EdgeSpark 专有环境变量补丁：
+2. 将代码复制到 EdgeSpark 项目，并精准注入 EdgeSpark 专有环境变量补丁：
 ```bash
 cp src/index.ts edgespark/gateway/server/src/index.ts
-sed -i '1s/^/import { vars } from "edgespark";
-/' edgespark/gateway/server/src/index.ts
-sed -i 's/return "";/try { const v = vars.get(key); if (v) return v; } catch(e) {} return "";/g' edgespark/gateway/server/src/index.ts
+sed -i '1s/^/import { vars } from "edgespark";\n/' edgespark/gateway/server/src/index.ts
+sed -i 's|// __EDGESPARK_INJECT_VARS__|try { const v = vars.get(key); if (v) return v; } catch(e) {}|' edgespark/gateway/server/src/index.ts
 ```
 3. 在 `edgespark/gateway/edgespark.toml` 文件的末尾追加环境变量：
 ```toml

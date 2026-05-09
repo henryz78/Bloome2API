@@ -10,23 +10,12 @@ import type { Context } from "hono";
 
 
 function getEnv<T extends string>(c: Context, key: T): string {
-  // 1. Try Hono's universal env adapter (Cloudflare standard)
   let val = env<Record<T, string>>(c)[key];
   if (val) return val;
-  // 2. Try Node's process.env (Local dev)
   if (typeof process !== "undefined" && process.env && process.env[key]) {
     return process.env[key] as string;
   }
-  // 3. Try EdgeSpark's proprietary vars.get() via dynamic check
-  // Since EdgeSpark exposes a global `vars` object to workers sometimes
-  try {
-    // @ts-ignore
-    if (typeof vars !== "undefined" && typeof vars.get === "function") {
-      // @ts-ignore
-      val = vars.get(key);
-      if (val) return val;
-    }
-  } catch (e) {}
+  // __EDGESPARK_INJECT_VARS__
   return "";
 }
 
