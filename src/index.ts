@@ -65,7 +65,9 @@ const MODELS = [
   { id: "deepseek-v4-flash", object: "model", created: 1687882411, owned_by: "reson", root: "deepseek-v4-flash", parent: null },
   { id: "deepseek-v3-2", object: "model", created: 1687882411, owned_by: "reson", root: "deepseek-v3-2", parent: null },
   { id: "gemini-3.1-pro", object: "model", created: 1687882411, owned_by: "reson", root: "gemini-3.1-pro", parent: null },
+  { id: "gemini-3.1-pro-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "gemini-3.1-pro-thinking", parent: "gemini-3.1-pro" },
   { id: "gemini-3-flash", object: "model", created: 1687882411, owned_by: "reson", root: "gemini-3-flash", parent: null },
+  { id: "gemini-3-flash-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "gemini-3-flash-thinking", parent: "gemini-3-flash" },
   { id: "MiniMax-M2.7", object: "model", created: 1687882411, owned_by: "reson", root: "MiniMax-M2.7", parent: null }
 ];
 
@@ -116,6 +118,16 @@ function getClaudeThinkingConfig(model: string): { publicModel: string; upstream
 
 function isGoogleModel(model: string): boolean {
   return typeof model === "string" && model.toLowerCase().startsWith("gemini");
+}
+
+function isGoogleThinkingAlias(model: string): boolean {
+  return typeof model === "string" && model.toLowerCase().startsWith("gemini") && model.toLowerCase().endsWith("-thinking");
+}
+
+function getGoogleThinkingConfig(model: string): { publicModel: string; upstreamModel: string; includeThoughts: boolean } {
+  const publicModel = model;
+  const upstreamModel = isGoogleThinkingAlias(model) ? model.slice(0, -"-thinking".length) : model;
+  return { publicModel, upstreamModel, includeThoughts: isGoogleThinkingAlias(model) };
 }
 
 function isReasoningModel(model: string): boolean {
@@ -255,7 +267,11 @@ function anthropicToOpenaiResponse(data: any, publicModel?: string): any {
 // ========== Google Gemini (Vertex) conversion ==========
 
 function openaiToGoogleRequest(body: any): any {
+  const googleCfg = getGoogleThinkingConfig(body.model || "");
   const out: any = { contents: [], generationConfig: {} };
+  if (googleCfg.includeThoughts) {
+    out.generationConfig.thinkingConfig = { includeThoughts: true };
+  }
   if (body.temperature !== undefined) out.generationConfig.temperature = body.temperature;
   if (body.top_p !== undefined) out.generationConfig.topP = body.top_p;
   if (body.max_tokens ?? body.max_completion_tokens) {
@@ -305,22 +321,30 @@ function mapGoogleFinishReason(reason: string | null | undefined): string | null
   }
 }
 
-function googleToOpenaiResponse(data: any): any {
+function googleToOpenaiResponse(data: any, publicModel?: string): any {
   if (!data || typeof data !== "object") return data;
   if (data.error) return data;
   const candidate = data.candidates?.[0];
   let text = "";
+  let reasoning = "";
   if (candidate?.content?.parts) {
-    text = candidate.content.parts.map((p:any) => p.text || "").join("");
+    for (const p of candidate.content.parts) {
+      if (!p || typeof p !== "object") continue;
+      const t = p.text || "";
+      if (p.thought === true) reasoning += t;
+      else text += t;
+    }
   }
   const pTok = data.usageMetadata?.promptTokenCount || 0;
   const cTok = data.usageMetadata?.candidatesTokenCount || 0;
+  const msg: any = { role: "assistant", content: text };
+  if (reasoning) msg.reasoning_content = reasoning;
   return {
     id: data.responseId || "",
     object: "chat.completion",
     created: data.createTime ? Math.floor(new Date(data.createTime).getTime()/1000) : Math.floor(Date.now()/1000),
-    model: data.modelVersion || "",
-    choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: mapGoogleFinishReason(candidate?.finishReason) }],
+    model: publicModel || data.modelVersion || "",
+    choices: [{ index: 0, message: msg, finish_reason: mapGoogleFinishReason(candidate?.finishReason) }],
     usage: { prompt_tokens: pTok, completion_tokens: cTok, total_tokens: pTok + cTok }
   };
 }
@@ -601,20 +625,21 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
 
   // ===== Branch 3: Google (Gemini via Vertex) =====
   if (isGoogleModel(body.model)) {
+    const googleCfg = getGoogleThinkingConfig(body.model);
     const googleBody = openaiToGoogleRequest(body);
     const upstreamHeaders: Record<string, string> = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`
     };
     if (!isStream) {
-      const resp = await fetch(`${BLOOME_LLM_BASE}/v1/models/${body.model}:generateContent`, {
+      const resp = await fetch(`${BLOOME_LLM_BASE}/v1/models/${googleCfg.upstreamModel}:generateContent`, {
         method: "POST", headers: upstreamHeaders, body: JSON.stringify(googleBody)
       });
       const upstream: any = await resp.json().catch(() => ({ error: { message: "Upstream error" } }));
-      return c.json(upstream.error ? upstream : googleToOpenaiResponse(upstream), resp.status as any);
+      return c.json(upstream.error ? upstream : googleToOpenaiResponse(upstream, googleCfg.publicModel), resp.status as any);
     }
     return streamSSE(c, async (stream) => {
-      const resp = await fetch(`${BLOOME_LLM_BASE}/v1/models/${body.model}:streamGenerateContent?alt=sse`, {
+      const resp = await fetch(`${BLOOME_LLM_BASE}/v1/models/${googleCfg.upstreamModel}:streamGenerateContent?alt=sse`, {
         method: "POST", headers: upstreamHeaders, body: JSON.stringify(googleBody)
       });
       if (!resp.ok || !resp.body) {
@@ -626,7 +651,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let chunkId = "", chunkModel = body.model, roleSent = false;
+      let chunkId = "", chunkModel = googleCfg.publicModel, roleSent = false;
       
       const writeChunk = async (delta: any, finish_reason: string | null = null, usage: any = null) => {
         const obj: any = {
@@ -652,13 +677,17 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
               try {
                 const d = JSON.parse(jsonStr);
                 const candidate = d.candidates?.[0];
-                const textDelta = candidate?.content?.parts?.[0]?.text || "";
+                const part = candidate?.content?.parts?.[0];
+                const textDelta = part?.text || "";
+                const isThought = part?.thought === true;
                 const finishReason = candidate?.finishReason;
                 chunkId = d.responseId || chunkId;
-                chunkModel = d.modelVersion || chunkModel;
                 if (!roleSent) { await writeChunk({ role: "assistant", content: "" }); roleSent = true; }
-                if (textDelta) await writeChunk({ content: textDelta });
-                if (finishReason || d.usageMetadata) {
+                if (textDelta) {
+                  if (isThought) await writeChunk({ reasoning_content: textDelta });
+                  else await writeChunk({ content: textDelta });
+                }
+                if (finishReason) {
                   const usage = d.usageMetadata ? { prompt_tokens: d.usageMetadata.promptTokenCount || 0, completion_tokens: d.usageMetadata.candidatesTokenCount || 0, total_tokens: d.usageMetadata.totalTokenCount || 0 } : null;
                   await writeChunk({}, mapGoogleFinishReason(finishReason) || "stop", usage);
                 }
