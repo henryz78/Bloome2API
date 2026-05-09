@@ -628,6 +628,22 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
  * POST /messages
  * Anthropic native passthrough
  */
+
+/**
+ * GET /v1beta/models
+ * Mock Google native model list
+ */
+app.get(`${API_PREFIX.replace('/v1', '/v1beta')}/models`, (c) => {
+  const googleModels = MODELS.filter(m => isGoogleModel(m.id)).map(m => ({
+    name: `models/${m.id}`,
+    version: "001",
+    displayName: m.id,
+    description: "Proxied via Bloome",
+    supportedGenerationMethods: ["generateContent", "streamGenerateContent"]
+  }));
+  return c.json({ models: googleModels });
+});
+
 app.post(`${API_PREFIX}/messages`, async (c) => {
   const apiKey = getEnv(c, "BLOOME_API_KEY");
   const body = await c.req.text();
