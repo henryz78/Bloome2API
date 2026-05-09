@@ -192,17 +192,18 @@ curl -X POST http://localhost:3000/api/public/v1/chat/completions \
 ```bash
 bloome-cli edgespark project create --alias gateway
 ```
-2. 将代码复制到 EdgeSpark 项目，并精准注入 EdgeSpark 专有环境变量补丁：
+2. 将代码复制到 EdgeSpark 项目，并精准注入 EdgeSpark 运行时变量补丁：
 ```bash
 cp src/index.ts edgespark/gateway/server/src/index.ts
 sed -i '1s/^/import { vars } from "edgespark";\n/' edgespark/gateway/server/src/index.ts
-sed -i 's|// __EDGESPARK_INJECT_VARS__|try { const v = vars.get(key); if (v) return v; } catch(e) {}|' edgespark/gateway/server/src/index.ts
+sed -i 's|// __EDGESPARK_INJECT_VARS__|try { const v = vars.get(key as RuntimeKey); if (v) return v; } catch(e) {}|' edgespark/gateway/server/src/index.ts
 ```
-3. 在 `edgespark/gateway/edgespark.toml` 文件的末尾追加环境变量：
-```toml
-[vars]
-BLOOME_API_KEY = "这里填你的真实BLOOME_API_KEY"
-CLIENT_API_KEY = "用户给的密码"
+3. **不要把密钥写进 `edgespark.toml`，也不要提交到仓库。** 运行时变量必须远程设置：
+```bash
+cd edgespark/gateway
+EDGESPARK_PROJECT_ENVIRONMENT=production edgespark var set \
+  BLOOME_API_KEY="这里填你的真实BLOOME_API_KEY" \
+  CLIENT_API_KEY="用户给的密码"
 ```
 4. 进入目录并部署：
 ```bash
@@ -210,9 +211,17 @@ cd edgespark/gateway/server
 npm install
 EDGESPARK_PROJECT_ENVIRONMENT=production npx edgespark deploy
 ```
-5. 轮询健康检查：用 curl 不断请求新生成的 `https://xxx.edgespark.app/api/public/v1/models`，直到返回 200 为止（通常需要 10~15 秒生效）。
-6. 把存活的公网链接发给用户。
-
+5. 先验证健康检查和配置状态：
+```bash
+curl -H "Authorization: Bearer 用户给的密码" \
+  https://xxx.edgespark.app/api/public/v1/health
+```
+应该看到：
+```json
+{"status":"ok","config":{"bloomeApiKey":true,"clientApiKey":true}}
+```
+6. 再验证模型列表 / 聊天接口，确认返回 200。
+7. 把存活的公网链接发给用户。
 
 ## 第九步：热更新（已有 EdgeSpark 项目时）
 
@@ -231,16 +240,15 @@ EDGESPARK_PROJECT_ENVIRONMENT=production npx edgespark deploy
 2. 把最新代码同步到 EdgeSpark 项目目录：
 ```bash
 cp src/index.ts edgespark/gateway/server/src/index.ts
-sed -i '1s/^/import { vars } from "edgespark";
-/' edgespark/gateway/server/src/index.ts
-sed -i 's|// __EDGESPARK_INJECT_VARS__|try { const v = vars.get(key); if (v) return v; } catch(e) {}|' edgespark/gateway/server/src/index.ts
+sed -i '1s/^/import { vars } from "edgespark";\n/' edgespark/gateway/server/src/index.ts
+sed -i 's|// __EDGESPARK_INJECT_VARS__|try { const v = vars.get(key as RuntimeKey); if (v) return v; } catch(e) {}|' edgespark/gateway/server/src/index.ts
 ```
-3. 如有环境变量变更，同步更新：
-```toml
-# edgespark/gateway/edgespark.toml
-[vars]
-BLOOME_API_KEY = "这里填你的真实BLOOME_API_KEY"
-CLIENT_API_KEY = "用户当前想设置的密码"
+3. 如有环境变量变更，远程同步更新：
+```bash
+cd edgespark/gateway
+EDGESPARK_PROJECT_ENVIRONMENT=production edgespark var set \
+  BLOOME_API_KEY="这里填你的真实BLOOME_API_KEY" \
+  CLIENT_API_KEY="用户当前想设置的密码"
 ```
 4. 进入项目目录并重新部署：
 ```bash
@@ -248,8 +256,9 @@ cd edgespark/gateway/server
 npm install
 EDGESPARK_PROJECT_ENVIRONMENT=production npx edgespark deploy
 ```
-5. 部署完成后，再次验证：
+5. 部署完成后，先验证配置健康，再验证模型接口：
 ```bash
+curl -H "Authorization: Bearer 你的CLIENT_API_KEY" https://你的域名.edgespark.app/api/public/v1/health
 curl -H "Authorization: Bearer 你的CLIENT_API_KEY" https://你的域名.edgespark.app/api/public/v1/models
 ```
 6. **无论 URL 是否变化，都把最新完整公网 API URL 再发给用户确认一次**。
@@ -284,8 +293,6 @@ curl -H "Authorization: Bearer 你的CLIENT_API_KEY" https://你的域名.edgesp
 
 7. **每次部署或更新必须返回最新网址**：EdgeSpark 如果是全新部署或重新创建项目，生成的公网网址会发生变化。因此，无论是首次部署，还是后续做完修复和更新，只要执行了 `deploy`，都**必须**把最新的完整公网 API URL（例如 `https://xxx.edgespark.app/api/public/v1`）明确提供给用户，防止客户端配错旧地址。
 
----
-
 ## 不要做的事
 
 - ❌ 把 API key 写死在代码里
@@ -294,3 +301,4 @@ curl -H "Authorization: Bearer 你的CLIENT_API_KEY" https://你的域名.edgesp
 - ❌ 把 `reasoning_content` 映射到 `content`
 - ❌ Claude 请求不带 `anthropic-version` 头
 - ❌ 跳过第七步的流式验证
+- ❌ 把密钥写进 `edgespark.toml` 或提交到仓库

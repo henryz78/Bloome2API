@@ -9,12 +9,15 @@ import { env } from "hono/adapter";
 import type { Context } from "hono";
 
 
-function getEnv<T extends string>(c: Context, key: T): string {
+type RuntimeKey = "BLOOME_API_KEY" | "CLIENT_API_KEY";
+
+function getEnv(c: Context, key: RuntimeKey): string {
   try {
-    let val = env<Record<T, string>>(c)[key];
+    const runtimeEnv = env<Record<string, string>>(c);
+    const val = runtimeEnv?.[key];
     if (val) return val;
   } catch (e) {
-    // env() throws in EdgeSpark
+    // env() throws in some edge runtimes
   }
   if (typeof process !== "undefined" && process.env && process.env[key]) {
     return process.env[key] as string;
@@ -24,7 +27,13 @@ function getEnv<T extends string>(c: Context, key: T): string {
 }
 
 const API_PREFIX = process.env.API_PREFIX || "/api/public/v1";
-app.get("/api/public/v1/health", (c) => c.json({ status: "ok" })); // EdgeSpark requires /api/*
+app.get(`${API_PREFIX}/health`, (c) => c.json({
+  status: "ok",
+  config: {
+    bloomeApiKey: !!getEnv(c, "BLOOME_API_KEY"),
+    clientApiKey: !!getEnv(c, "CLIENT_API_KEY"),
+  }
+})); // EdgeSpark requires /api/*
 
 app.use("*", async (c, next) => {
   const expectedKey = getEnv(c, "CLIENT_API_KEY");
@@ -269,6 +278,7 @@ function anthropicToOpenaiResponse(data: any, publicModel?: string): any {
 function openaiToGoogleRequest(body: any): any {
   const googleCfg = getGoogleThinkingConfig(body.model || "");
   const out: any = { contents: [], generationConfig: {} };
+  const systemParts: any[] = [];
   if (googleCfg.includeThoughts) {
     out.generationConfig.thinkingConfig = { includeThoughts: true };
   }
@@ -302,11 +312,14 @@ function openaiToGoogleRequest(body: any): any {
         }
       }
       if (m.role === "system") {
-        out.systemInstruction = { role: "user", parts };
+        systemParts.push(...parts);
         continue;
       }
       out.contents.push({ role: m.role === "assistant" ? "model" : "user", parts });
     }
+  }
+  if (systemParts.length > 0) {
+    out.systemInstruction = { role: "user", parts: systemParts };
   }
   return out;
 }
@@ -501,7 +514,9 @@ app.get(`${API_PREFIX}/models`, (c) => {
  */
 app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   const apiKey = getEnv(c, "BLOOME_API_KEY");
-  if (!apiKey) return c.json({ error: { message: "Server not configured", type: "server_error" } }, 500);
+  if (!apiKey) {
+    return c.json({ error: { message: "Server not configured: missing BLOOME_API_KEY", type: "server_error" } }, 500);
+  }
   const body = await c.req.json().catch(() => null);
   if (!body) {
     return c.json({ error: { message: "Invalid JSON body", type: "invalid_request_error" } }, 400);
@@ -677,14 +692,14 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
               try {
                 const d = JSON.parse(jsonStr);
                 const candidate = d.candidates?.[0];
-                const part = candidate?.content?.parts?.[0];
-                const textDelta = part?.text || "";
-                const isThought = part?.thought === true;
+                const parts = candidate?.content?.parts || [];
                 const finishReason = candidate?.finishReason;
                 chunkId = d.responseId || chunkId;
                 if (!roleSent) { await writeChunk({ role: "assistant", content: "" }); roleSent = true; }
-                if (textDelta) {
-                  if (isThought) await writeChunk({ reasoning_content: textDelta });
+                for (const part of parts) {
+                  const textDelta = part?.text || "";
+                  if (!textDelta) continue;
+                  if (part?.thought === true) await writeChunk({ reasoning_content: textDelta });
                   else await writeChunk({ content: textDelta });
                 }
                 if (finishReason) {
@@ -729,6 +744,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let sawDone = false;
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -740,6 +756,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           buffer = buffer.slice(nl + 1);
           if (line.trim()) {
             const r = cleanSSEDataLine(line.trim());
+            if (r.line === "data: [DONE]") sawDone = true;
             if (r.line !== null) await stream.write(r.line + "\n");
           } else {
             await stream.write("\n");
@@ -748,9 +765,12 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       }
       if (buffer.trim()) {
         const r = cleanSSEDataLine(buffer.trim());
+        if (r.line === "data: [DONE]") sawDone = true;
         if (r.line !== null) await stream.write(r.line + "\n");
       }
-      await stream.write("data: [DONE]\n\n");
+      if (!sawDone) {
+        await stream.write("data: [DONE]\n\n");
+      }
     } finally {
       reader.releaseLock();
       await stream.close();
