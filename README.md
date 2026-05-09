@@ -16,6 +16,7 @@
 当前代理里支持的模型、真实上游返回模型名、协议入口、是否存在 alias 重定向，已经单独整理到：
 
 - [`MODELS.md`](./MODELS.md)
+- [`THINKING.md`](./THINKING.md)
 
 如果你想确认某个模型到底是不是“真那个模型”，先看 `MODELS.md`。
 
@@ -81,6 +82,7 @@ bun start
 |---|---|
 | `src/index.ts` | 后端主逻辑 |
 | `MODELS.md` | 已验证模型与上游真实映射表 |
+| `THINKING.md` | thinking / reasoning 模式设计、`-thinking` alias 规则与协议兼容策略 |
 | `DEPLOY.md` | 部署、回滚、模型探测维护说明 |
 
 ## 维护建议
