@@ -211,7 +211,7 @@ cd edgespark/gateway/server
 npm install
 EDGESPARK_PROJECT_ENVIRONMENT=production npx edgespark deploy
 ```
-5. 先验证健康检查和配置状态：
+5. 先验证健康检查和配置状态（`/health` 允许免鉴权访问，便于第一次 bring-up 排障）：
 ```bash
 curl -H "Authorization: Bearer 用户给的密码" \
   https://xxx.edgespark.app/api/public/v1/health

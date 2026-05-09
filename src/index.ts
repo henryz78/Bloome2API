@@ -35,7 +35,12 @@ app.get(`${API_PREFIX}/health`, (c) => c.json({
   }
 })); // EdgeSpark requires /api/*
 
-app.use("*", async (c, next) => {
+app.use(`${API_PREFIX}/*`, async (c, next) => {
+  if (c.req.path === `${API_PREFIX}/health`) {
+    await next();
+    return;
+  }
+
   const expectedKey = getEnv(c, "CLIENT_API_KEY");
   if (expectedKey) {
     const token =
