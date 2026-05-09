@@ -195,9 +195,9 @@ bloome-cli edgespark project create --alias gateway
 2. 将代码复制到 EdgeSpark 项目：
 ```bash
 cp src/index.ts edgespark/gateway/server/src/index.ts
-cp package.json edgespark/gateway/server/package.json
+
 ```
-3. 在 `edgespark/gateway/server/edgespark.toml` 文件的末尾追加环境变量：
+3. 在 `edgespark/gateway/edgespark.toml` 文件的末尾追加环境变量：
 ```toml
 [vars]
 BLOOME_API_KEY = "这里填你的真实BLOOME_API_KEY"
