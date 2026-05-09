@@ -218,6 +218,10 @@ EDGESPARK_PROJECT_ENVIRONMENT=production edgespark var set \
   BLOOME_API_KEY="这里填你的真实BLOOME_API_KEY" \
   CLIENT_API_KEY="用户给的密码"
 ```
+**注意：**
+- `secret call` 只会注入你指定的 secret，不会顺手把 Agent 里的其它环境变量带进去。
+- 不要在 `secret call ... bash -c '...'` 里面指望 `$RESON_LLM_API_KEY` 自动可用。
+- `BLOOME_API_KEY` 请直接传完整值，不要用 `head` / 截断方式取 key。
 
 5. 进入目录并部署：
 ```bash
@@ -225,6 +229,7 @@ cd edgespark/gateway/server
 npm install
 EDGESPARK_PROJECT_ENVIRONMENT=production npx edgespark deploy
 ```
+如果你刚刚执行过 `edgespark var set`，这里仍然需要重新 deploy 一次；vars 不会自动热加载到线上运行时。
 
 6. 先验证健康检查和配置状态（`/health` 允许免鉴权访问，便于第一次 bring-up 排障）：
 ```bash
@@ -284,6 +289,7 @@ EDGESPARK_PROJECT_ENVIRONMENT=production edgespark var set \
   BLOOME_API_KEY="这里填你的真实BLOOME_API_KEY" \
   CLIENT_API_KEY="用户当前想设置的密码"
 ```
+如果你刚刚执行过 `edgespark var set`，后面仍然需要重新 deploy 一次；vars 不会自动热加载。
 
 6. 进入项目目录并重新部署：
 ```bash
@@ -334,6 +340,8 @@ curl -H "Authorization: Bearer 你的CLIENT_API_KEY" https://你的域名.edgesp
 
 8. **EdgeSpark 部署先 smoke test，再 deploy**：create 之后先用对应 secret 跑一次 `edgespark pull`。如果 pull 失败，优先判断 binding/token 有问题；不要急着怀疑业务代码。
 
+9. **不要手动改 `EDGESPARK_BASE_URL`**：正常情况下只设置 `EDGESPARK_PROJECT_ENVIRONMENT=production` 就够了。CLI 的 API 域名和项目运行域名后缀不同是正常现象，不要被这个带偏。
+
 ## 不要做的事
 
 - ❌ 把 API key 写死在代码里
@@ -344,3 +352,6 @@ curl -H "Authorization: Bearer 你的CLIENT_API_KEY" https://你的域名.edgesp
 - ❌ 跳过第七步的流式验证
 - ❌ 把密钥写进 `edgespark.toml` 或提交到仓库
 - ❌ 旧 alias 已经 `verify 404` / `invalid bearer token` 了，还继续在上面反复 deploy
+- ❌ 在 `secret call` 里直接引用 `$RESON_LLM_API_KEY`，然后以为它会自动有值
+- ❌ 用 `head` 或截断方式去取 `BLOOME_API_KEY`
+- ❌ 为了 `.dev` / `.app` 域名差异手动乱改 `EDGESPARK_BASE_URL`

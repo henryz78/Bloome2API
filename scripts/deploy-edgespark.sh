@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_DIR="$ROOT_DIR/edgespark/$ALIAS"
 SERVER_DIR="$PROJECT_DIR/server"
 TARGET_SRC="$SERVER_DIR/src/index.ts"
+TARGET_RUNTIME="$SERVER_DIR/src/defs/runtime.ts"
 
 : "${EDGESPARK_API_KEY:?Missing EDGESPARK_API_KEY}"
 : "${BLOOME_API_KEY:?Missing BLOOME_API_KEY}"
@@ -21,6 +22,12 @@ fi
 
 if [[ ! -f "$TARGET_SRC" ]]; then
   echo "Missing target source file: $TARGET_SRC"
+  echo "Run: cd $PROJECT_DIR && edgespark pull"
+  exit 1
+fi
+
+if [[ ! -f "$TARGET_RUNTIME" ]]; then
+  echo "Missing runtime defs file: $TARGET_RUNTIME"
   echo "Run: cd $PROJECT_DIR && edgespark pull"
   exit 1
 fi
@@ -46,6 +53,22 @@ fi
 if ! grep -q '^installBloomeBridge(app);$' "$TARGET_SRC"; then
   sed -i 's|const app = new Hono();|const app = new Hono();\n\ninstallBloomeBridge(app);|' "$TARGET_SRC"
 fi
+
+echo "==> Patching EdgeSpark runtime VarKey"
+python3 - <<'PY' "$TARGET_RUNTIME"
+from pathlib import Path
+import re
+import sys
+p = Path(sys.argv[1])
+text = p.read_text()
+old = 'export type VarKey = never;'
+new = 'export type VarKey =\n  | "BLOOME_API_KEY"\n  | "CLIENT_API_KEY";'
+if old in text:
+    text = text.replace(old, new)
+else:
+    text = re.sub(r'export type VarKey =\n(?:\s*\| .*\n)*\s*;', new, text, count=1)
+p.write_text(text)
+PY
 
 echo "==> Pulling generated types"
 (cd "$PROJECT_DIR" && edgespark pull)
