@@ -175,23 +175,105 @@ function getGoogleThinkingConfig(model: string): { publicModel: string; upstream
   return { publicModel, upstreamModel, includeThoughts: isGoogleThinkingAlias(model) };
 }
 
+function mapOpenAIToGoogleToolConfig(toolChoice: any): any {
+  if (toolChoice === undefined || toolChoice === "auto") return undefined;
+  if (toolChoice === "none") return { functionCallingConfig: { mode: "NONE" } };
+  if (toolChoice === "required") return { functionCallingConfig: { mode: "ANY" } };
+  if (toolChoice?.type === "function" && toolChoice.function?.name) {
+    return {
+      functionCallingConfig: {
+        mode: "ANY",
+        allowedFunctionNames: [toolChoice.function.name],
+      },
+    };
+  }
+  return undefined;
+}
+
 function isReasoningModel(model: string): boolean {
   if (typeof model !== "string") return false;
   const m = model.toLowerCase();
   return m.startsWith("gpt-5") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4");
 }
 
-function hasUnsupportedToolUse(body: any): boolean {
+function hasLegacyFunctionUse(body: any): boolean {
   if (!body || typeof body !== "object") return false;
-  if (body.tools !== undefined || body.tool_choice !== undefined || body.functions !== undefined || body.function_call !== undefined) {
+  if (body.functions !== undefined || body.function_call !== undefined) {
     return true;
   }
   if (!Array.isArray(body.messages)) return false;
   return body.messages.some((m: any) =>
     m &&
     typeof m === "object" &&
-    (m.role === "tool" || m.tool_call_id !== undefined || m.tool_calls !== undefined || m.function_call !== undefined)
+    m.function_call !== undefined
   );
+}
+
+function hasToolUse(body: any): boolean {
+  if (!body || typeof body !== "object") return false;
+  if (body.tools !== undefined || body.tool_choice !== undefined) return true;
+  if (!Array.isArray(body.messages)) return false;
+  return body.messages.some((m: any) =>
+    m &&
+    typeof m === "object" &&
+    (m.role === "tool" || m.tool_call_id !== undefined || m.tool_calls !== undefined)
+  );
+}
+
+function getOpenAIFunctionTools(body: any): any[] {
+  if (!Array.isArray(body?.tools)) return [];
+  return body.tools
+    .filter((tool: any) => tool?.type === "function" && tool.function?.name)
+    .map((tool: any) => tool.function);
+}
+
+function fallbackJsonSchema(): any {
+  return { type: "object", properties: {} };
+}
+
+function parseToolArguments(args: any): any {
+  if (args == null || args === "") return {};
+  if (typeof args === "object") return args;
+  if (typeof args !== "string") return {};
+  try {
+    return JSON.parse(args);
+  } catch {
+    return {};
+  }
+}
+
+function stringifyToolArguments(args: any): string {
+  if (args == null) return "{}";
+  if (typeof args === "string") return args;
+  try {
+    return JSON.stringify(args);
+  } catch {
+    return "{}";
+  }
+}
+
+function normalizeToolResultContent(content: any): string {
+  if (content == null) return "";
+  if (typeof content === "string") return content;
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content);
+  }
+}
+
+function collectToolCallNames(messages: any[]): Record<string, string> {
+  const names: Record<string, string> = {};
+  if (!Array.isArray(messages)) return names;
+  for (const m of messages) {
+    if (!Array.isArray(m?.tool_calls)) continue;
+    for (const call of m.tool_calls) {
+      const id = call?.id;
+      const name = call?.function?.name;
+      if (id && name) names[id] = name;
+    }
+  }
+  return names;
 }
 
 // ========== OpenAI ↔ Anthropic conversion ==========
@@ -203,6 +285,16 @@ function parseDataUrl(url: string) {
   return null;
 }
 
+function mapOpenAIToAnthropicToolChoice(toolChoice: any): any {
+  if (toolChoice === undefined) return undefined;
+  if (toolChoice === "none") return { type: "none" };
+  if (toolChoice === "auto") return { type: "auto" };
+  if (toolChoice === "required") return { type: "any" };
+  if (toolChoice?.type === "function" && toolChoice.function?.name) {
+    return { type: "tool", name: toolChoice.function.name };
+  }
+  return undefined;
+}
 
 /**
  * Convert OpenAI chat completions request to Anthropic Messages format.
@@ -223,6 +315,16 @@ function openaiToAnthropicRequest(body: any): any {
   if (body.stop !== undefined) out.stop_sequences = Array.isArray(body.stop) ? body.stop : [body.stop];
   if (thinkingCfg.thinking) out.thinking = thinkingCfg.thinking;
   if (thinkingCfg.output_config) out.output_config = thinkingCfg.output_config;
+  const tools = getOpenAIFunctionTools(body);
+  if (tools.length > 0) {
+    out.tools = tools.map((tool: any) => ({
+      name: tool.name,
+      description: tool.description || "",
+      input_schema: tool.parameters || fallbackJsonSchema(),
+    }));
+  }
+  const toolChoice = mapOpenAIToAnthropicToolChoice(body.tool_choice);
+  if (toolChoice) out.tool_choice = toolChoice;
 
   const systemParts: string[] = [];
   if (Array.isArray(body.messages)) {
@@ -239,24 +341,54 @@ function openaiToAnthropicRequest(body: any): any {
         }
         continue;
       }
+      if (m.role === "tool") {
+        out.messages.push({
+          role: "user",
+          content: [{
+            type: "tool_result",
+            tool_use_id: m.tool_call_id || "",
+            content: normalizeToolResultContent(m.content),
+          }],
+        });
+        continue;
+      }
       let content: any = m.content;
+      const contentBlocks: any[] = [];
       if (Array.isArray(m.content)) {
-        content = [];
         for (const p of m.content) {
           if (!p) continue;
-          if (typeof p === "string") content.push({ type: "text", text: p });
-          else if (p.type === "text") content.push({ type: "text", text: p.text || "" });
+          if (typeof p === "string") contentBlocks.push({ type: "text", text: p });
+          else if (p.type === "text") contentBlocks.push({ type: "text", text: p.text || "" });
           else if (p.type === "image_url" && p.image_url?.url) {
             const parsed = parseDataUrl(p.image_url.url);
             if (parsed) {
-              content.push({ type: "image", source: { type: "base64", media_type: parsed.mimeType, data: parsed.data } });
+              contentBlocks.push({ type: "image", source: { type: "base64", media_type: parsed.mimeType, data: parsed.data } });
             } else {
-              content.push({ type: "text", text: `[Image URL: ${p.image_url.url}]` });
+              contentBlocks.push({ type: "text", text: `[Image URL: ${p.image_url.url}]` });
             }
           }
         }
+        content = contentBlocks;
       } else if (content == null) {
         content = "";
+      }
+      if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
+        const assistantBlocks: any[] = [];
+        if (typeof m.content === "string" && m.content) {
+          assistantBlocks.push({ type: "text", text: m.content });
+        } else if (Array.isArray(content)) {
+          assistantBlocks.push(...content.filter((p: any) => p?.type === "text"));
+        }
+        for (const call of m.tool_calls) {
+          if (call?.type !== "function" || !call.function?.name) continue;
+          assistantBlocks.push({
+            type: "tool_use",
+            id: call.id || "",
+            name: call.function.name,
+            input: parseToolArguments(call.function.arguments),
+          });
+        }
+        content = assistantBlocks;
       }
       out.messages.push({ role: m.role === "assistant" ? "assistant" : "user", content });
     }
@@ -290,17 +422,29 @@ function anthropicToOpenaiResponse(data: any, publicModel?: string): any {
   if (data.error) return data;
   let text = "";
   let reasoning = "";
+  const toolCalls: any[] = [];
   if (Array.isArray(data.content)) {
     for (const block of data.content) {
       if (!block || typeof block !== "object") continue;
       if (block.type === "text" && typeof block.text === "string") text += block.text;
       if (block.type === "thinking" && typeof block.thinking === "string") reasoning += block.thinking;
+      if (block.type === "tool_use" && block.name) {
+        toolCalls.push({
+          id: block.id || "",
+          type: "function",
+          function: {
+            name: block.name,
+            arguments: stringifyToolArguments(block.input),
+          },
+        });
+      }
     }
   }
   const promptTokens = data.usage?.input_tokens || 0;
   const completionTokens = data.usage?.output_tokens || 0;
-  const message: any = { role: "assistant", content: text };
+  const message: any = { role: "assistant", content: toolCalls.length > 0 && !text ? null : text };
   if (reasoning) message.reasoning_content = reasoning;
+  if (toolCalls.length > 0) message.tool_calls = toolCalls;
   return {
     id: data.id || "",
     object: "chat.completion",
@@ -328,6 +472,7 @@ function openaiToGoogleRequest(body: any): any {
   const googleCfg = getGoogleThinkingConfig(body.model || "");
   const out: any = { contents: [], generationConfig: {} };
   const systemParts: any[] = [];
+  const toolCallNames = collectToolCallNames(body.messages || []);
   if (googleCfg.includeThoughts) {
     out.generationConfig.thinkingConfig = { includeThoughts: true };
   }
@@ -339,11 +484,31 @@ function openaiToGoogleRequest(body: any): any {
   if (body.stop) {
     out.generationConfig.stopSequences = Array.isArray(body.stop) ? body.stop : [body.stop];
   }
+  const tools = getOpenAIFunctionTools(body);
+  if (tools.length > 0) {
+    out.tools = [{
+      functionDeclarations: tools.map((tool: any) => ({
+        name: tool.name,
+        description: tool.description || "",
+        parameters: tool.parameters || fallbackJsonSchema(),
+      })),
+    }];
+  }
+  const toolConfig = mapOpenAIToGoogleToolConfig(body.tool_choice);
+  if (toolConfig) out.toolConfig = toolConfig;
   if (Array.isArray(body.messages)) {
     for (const m of body.messages) {
       if (!m || typeof m !== "object") continue;
       let parts: any[] = [];
-      if (typeof m.content === "string") {
+      if (m.role === "tool") {
+        const name = m.name || toolCallNames[m.tool_call_id] || "tool_result";
+        parts.push({
+          functionResponse: {
+            name,
+            response: { content: normalizeToolResultContent(m.content) },
+          },
+        });
+      } else if (typeof m.content === "string") {
         parts.push({ text: m.content });
       } else if (Array.isArray(m.content)) {
         for (const p of m.content) {
@@ -358,6 +523,17 @@ function openaiToGoogleRequest(body: any): any {
               parts.push({ text: `[Image URL: ${p.image_url.url}]` });
             }
           }
+        }
+      }
+      if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
+        for (const call of m.tool_calls) {
+          if (call?.type !== "function" || !call.function?.name) continue;
+          parts.push({
+            functionCall: {
+              name: call.function.name,
+              args: parseToolArguments(call.function.arguments),
+            },
+          });
         }
       }
       if (m.role === "system") {
@@ -389,24 +565,36 @@ function googleToOpenaiResponse(data: any, publicModel?: string): any {
   const candidate = data.candidates?.[0];
   let text = "";
   let reasoning = "";
+  const toolCalls: any[] = [];
   if (candidate?.content?.parts) {
     for (const p of candidate.content.parts) {
       if (!p || typeof p !== "object") continue;
       const t = p.text || "";
       if (p.thought === true) reasoning += t;
       else text += t;
+      if (p.functionCall?.name) {
+        toolCalls.push({
+          id: `call_${toolCalls.length}`,
+          type: "function",
+          function: {
+            name: p.functionCall.name,
+            arguments: stringifyToolArguments(p.functionCall.args),
+          },
+        });
+      }
     }
   }
   const pTok = data.usageMetadata?.promptTokenCount || 0;
   const cTok = data.usageMetadata?.candidatesTokenCount || 0;
-  const msg: any = { role: "assistant", content: text };
+  const msg: any = { role: "assistant", content: toolCalls.length > 0 && !text ? null : text };
   if (reasoning) msg.reasoning_content = reasoning;
+  if (toolCalls.length > 0) msg.tool_calls = toolCalls;
   return {
     id: data.responseId || "",
     object: "chat.completion",
     created: data.createTime ? Math.floor(new Date(data.createTime).getTime()/1000) : Math.floor(Date.now()/1000),
     model: publicModel || data.modelVersion || "",
-    choices: [{ index: 0, message: msg, finish_reason: mapGoogleFinishReason(candidate?.finishReason) }],
+    choices: [{ index: 0, message: msg, finish_reason: toolCalls.length > 0 ? "tool_calls" : mapGoogleFinishReason(candidate?.finishReason) }],
     usage: { prompt_tokens: pTok, completion_tokens: cTok, total_tokens: pTok + cTok }
   };
 }
@@ -582,10 +770,18 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   const isStream = body.stream === true;
 
   const needsProtocolTranslation = isAnthropicModel(body.model) || isGoogleModel(body.model);
-  if (needsProtocolTranslation && hasUnsupportedToolUse(body)) {
+  if (needsProtocolTranslation && hasLegacyFunctionUse(body)) {
     return c.json({
       error: {
-        message: "Tool/function calling is not supported for translated Anthropic or Gemini requests",
+        message: "Legacy function_call/functions are not supported for translated Anthropic or Gemini requests; use tools/tool_calls instead",
+        type: "invalid_request_error",
+      },
+    }, 400);
+  }
+  if (needsProtocolTranslation && isStream && hasToolUse(body)) {
+    return c.json({
+      error: {
+        message: "Streaming tool calls are not supported for translated Anthropic or Gemini requests; use stream=false",
         type: "invalid_request_error",
       },
     }, 400);

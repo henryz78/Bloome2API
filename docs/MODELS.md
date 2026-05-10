@@ -45,7 +45,22 @@
 
 ## 额外说明
 
-### 1. 关于 MiniMax M2.7
+### 1. 关于工具调用
+
+Claude / MiniMax / Gemini 会在代理层进行 OpenAI `tools` / `tool_calls` 到上游工具协议的双向转换。
+
+当前支持范围：
+
+- 非流式 `stream: false` 工具调用
+- OpenAI `tools: [{ type: "function", function: ... }]`
+- 多轮工具结果回传，即 OpenAI `role: "tool"` 消息
+
+当前不支持：
+
+- 流式工具调用
+- 旧版 `functions` / `function_call`
+
+### 2. 关于 MiniMax M2.7
 
 这个模型比较特殊：
 
@@ -61,7 +76,7 @@
 - `minimax`
 - `m2.7`
 
-### 2. 关于 DeepSeek V3.2
+### 3. 关于 DeepSeek V3.2
 
 客户端展示常写作 **DeepSeek V3.2**，但代理里应写：
 
@@ -73,7 +88,7 @@
 
 - `deepseek-v4-pro`
 
-### 3. 关于“是否真的是那个模型”
+### 4. 关于“是否真的是那个模型”
 
 这里的“真”分三种情况：
 

@@ -73,7 +73,11 @@ Bloome2API/
 
 ## 额外说明
 
-### 1. 真正的源码源头
+### 1. 工具调用支持
+
+Claude / MiniMax / Gemini 已支持 OpenAI 风格的非流式 `tools` / `tool_calls`。当前不支持流式工具调用；需要工具调用时请使用 `stream: false`。
+
+### 2. 真正的源码源头
 永远是：
 
 - `src/index.ts`
@@ -84,7 +88,7 @@ Bloome2API/
 
 后者只是部署时生成的运行副本。
 
-### 2. 如果旧 alias 坏了
+### 3. 如果旧 alias 坏了
 只要出现：
 
 - `verify 404`
@@ -93,5 +97,5 @@ Bloome2API/
 
 直接换 fresh alias，不要在旧 alias 上硬修。
 
-### 3. 如果要查模型和 thinking 细节
+### 4. 如果要查模型和 thinking 细节
 去 `docs/` 看。
