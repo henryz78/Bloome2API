@@ -96,7 +96,9 @@ const MODELS = [
   { id: "claude-haiku-4-5", object: "model", created: 1687882411, owned_by: "reson", root: "claude-haiku-4-5", parent: null },
   { id: "claude-haiku-4-5-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "claude-haiku-4-5-thinking", parent: "claude-haiku-4-5" },
   { id: "gpt-5.4", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4", parent: null },
+  { id: "gpt-5.4-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4-thinking", parent: "gpt-5.4" },
   { id: "gpt-5.4-mini", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4-mini", parent: null },
+  { id: "gpt-5.4-mini-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4-mini-thinking", parent: "gpt-5.4-mini" },
   { id: "glm-5.1", object: "model", created: 1687882411, owned_by: "reson", root: "glm-5.1", parent: null },
   { id: "kimi-k2.6", object: "model", created: 1687882411, owned_by: "reson", root: "kimi-k2.6", parent: null },
   { id: "kimi-k2.5", object: "model", created: 1687882411, owned_by: "reson", root: "kimi-k2.5", parent: null },
@@ -173,6 +175,16 @@ function getGoogleThinkingConfig(model: string): { publicModel: string; upstream
   const publicModel = model;
   const upstreamModel = isGoogleThinkingAlias(model) ? model.slice(0, -"-thinking".length) : model;
   return { publicModel, upstreamModel, includeThoughts: isGoogleThinkingAlias(model) };
+}
+
+function isGPTThinkingAlias(model: string): boolean {
+  return typeof model === "string" && model.toLowerCase().startsWith("gpt-5") && model.toLowerCase().endsWith("-thinking");
+}
+
+function getGPTThinkingConfig(model: string): { publicModel: string; upstreamModel: string; reasoningEffort?: string } {
+  const publicModel = model;
+  const upstreamModel = isGPTThinkingAlias(model) ? model.slice(0, -"-thinking".length) : model;
+  return { publicModel, upstreamModel, reasoningEffort: isGPTThinkingAlias(model) ? "medium" : undefined };
 }
 
 function mapOpenAIToGoogleToolConfig(toolChoice: any): any {
@@ -617,7 +629,7 @@ function googleToOpenaiResponse(data: any, publicModel?: string): any {
  * - Preserves `reasoning_content` in its own field (never maps to `content`)
  * - Removes non-standard fields like `cached_tokens`, `system_fingerprint`
  */
-function cleanChatCompletion(data: any): any {
+function cleanChatCompletion(data: any, publicModel?: string): any {
   if (!data || typeof data !== "object") return data;
   if (data.error) return data;
 
@@ -625,7 +637,7 @@ function cleanChatCompletion(data: any): any {
     id: data.id || "",
     object: data.object || "chat.completion",
     created: typeof data.created === "number" ? data.created : Math.floor(Date.now() / 1000),
-    model: data.model || "",
+    model: publicModel || data.model || "",
   };
 
   if (Array.isArray(data.choices)) {
@@ -667,7 +679,7 @@ function cleanChatCompletion(data: any): any {
  * - Preserves `reasoning_content` in delta
  * Returns null to drop the line entirely.
  */
-function cleanSSEDataLine(line: string): {
+function cleanSSEDataLine(line: string, publicModel?: string): {
   line: string | null;
   usage?: { p: number; c: number; t: number };
 } {
@@ -691,7 +703,7 @@ function cleanSSEDataLine(line: string): {
     id: data.id || "",
     object: "chat.completion.chunk",
     created: typeof data.created === "number" ? data.created : Math.floor(Date.now() / 1000),
-    model: data.model || "",
+    model: publicModel || data.model || "",
   };
 
   let extractedUsage: { p: number; c: number; t: number } | undefined;
@@ -1014,6 +1026,14 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   }
 
   // ===== Branch 2: OpenAI native upstream (Kimi / GPT) =====
+  const gptThinkingCfg = getGPTThinkingConfig(body.model);
+  if (gptThinkingCfg.reasoningEffort) {
+    body.reasoning_effort = gptThinkingCfg.reasoningEffort;
+  }
+  if (gptThinkingCfg.upstreamModel !== body.model) {
+    body.model = gptThinkingCfg.upstreamModel;
+  }
+
   if (!isStream) {
     const resp = await fetch(`${BLOOME_LLM_BASE}/v1/chat/completions`, {
       method: "POST",
@@ -1021,7 +1041,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       body: JSON.stringify(body),
     });
     const data = await resp.json().catch(() => ({ error: { message: "Upstream error" } }));
-    return c.json(cleanChatCompletion(data), resp.status as any);
+    return c.json(cleanChatCompletion(data, gptThinkingCfg.publicModel), resp.status as any);
   }
 
   return streamSSE(c, async (stream) => {
@@ -1050,7 +1070,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           const line = buffer.slice(0, nl);
           buffer = buffer.slice(nl + 1);
           if (line.trim()) {
-            const r = cleanSSEDataLine(line.trim());
+            const r = cleanSSEDataLine(line.trim(), gptThinkingCfg.publicModel);
             if (r.line === "data: [DONE]") sawDone = true;
             if (r.line !== null) await stream.write(r.line + "\n");
           } else {
@@ -1059,7 +1079,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
         }
       }
       if (buffer.trim()) {
-        const r = cleanSSEDataLine(buffer.trim());
+        const r = cleanSSEDataLine(buffer.trim(), gptThinkingCfg.publicModel);
         if (r.line === "data: [DONE]") sawDone = true;
         if (r.line !== null) await stream.write(r.line + "\n");
       }
