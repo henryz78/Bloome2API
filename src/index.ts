@@ -246,7 +246,10 @@ function getOpenAIFunctionTools(body: any): any[] {
   if (!Array.isArray(body?.tools)) return [];
   return body.tools
     .filter((tool: any) => tool?.type === "function" && tool.function?.name)
-    .map((tool: any) => tool.function);
+    .map((tool: any) => ({
+      ...tool.function,
+      cache_control: tool.function.cache_control ?? tool.cache_control,
+    }));
 }
 
 function fallbackJsonSchema(): any {
@@ -272,6 +275,56 @@ function stringifyToolArguments(args: any): string {
   } catch {
     return "{}";
   }
+}
+
+function stableJson(value: any): string {
+  if (value === undefined) return "undefined";
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+}
+
+function hashString(input: string): string {
+  let h1 = 0xdeadbeef ^ input.length;
+  let h2 = 0x41c6ce57 ^ input.length;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+function getSystemMessages(messages: any[]): any[] {
+  if (!Array.isArray(messages)) return [];
+  return messages
+    .filter((m: any) => m?.role === "system")
+    .map((m: any) => m.content);
+}
+
+function buildPromptCacheKey(body: any): string | undefined {
+  const seed: any = {
+    model: body.model,
+    system: getSystemMessages(body.messages || []),
+  };
+  if (Array.isArray(body.tools) && body.tools.length > 0) seed.tools = body.tools;
+  if (body.response_format !== undefined) seed.response_format = body.response_format;
+  if (seed.system.length === 0 && seed.tools === undefined && seed.response_format === undefined) return undefined;
+  return `bloome-${hashString(stableJson(seed))}`;
+}
+
+function maybeInjectOpenAIPromptCacheKey(body: any): void {
+  if (body.prompt_cache === false || body.cache === false || body.prompt_cache_key !== undefined) return;
+  if (!String(body.model || "").toLowerCase().startsWith("gpt-")) return;
+  const key = buildPromptCacheKey(body);
+  if (key) body.prompt_cache_key = key;
+}
+
+function stripInternalPromptCacheFlags(body: any): void {
+  delete body.prompt_cache;
+  if (typeof body.cache === "boolean") delete body.cache;
 }
 
 function normalizeToolResultContent(content: any): string {
@@ -318,14 +371,56 @@ function mapOpenAIToAnthropicToolChoice(toolChoice: any): any {
   return undefined;
 }
 
+function normalizeAnthropicCacheControl(cacheControl: any): any | undefined {
+  if (cacheControl === undefined || cacheControl === null || cacheControl === false) return undefined;
+  if (cacheControl === true) return { type: "ephemeral", ttl: "5m" };
+  if (typeof cacheControl !== "object") return undefined;
+
+  const normalized: any = { type: cacheControl.type || "ephemeral" };
+  if (typeof cacheControl.ttl === "string" && cacheControl.ttl) {
+    normalized.ttl = cacheControl.ttl;
+  }
+  return normalized;
+}
+
+function defaultPromptCacheControl(): any {
+  return { type: "ephemeral", ttl: "5m" };
+}
+
+function hasCacheControl(value: any): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (value.cache_control !== undefined) return true;
+  if (Array.isArray(value)) return value.some(hasCacheControl);
+  return Object.values(value).some(hasCacheControl);
+}
+
+function attachCacheControl(block: any, cacheControl: any): any {
+  const normalized = normalizeAnthropicCacheControl(cacheControl);
+  return normalized ? { ...block, cache_control: normalized } : block;
+}
+
+function attachCacheControlToLastTextBlock(blocks: any[], cacheControl: any): any[] {
+  const normalized = normalizeAnthropicCacheControl(cacheControl);
+  if (!normalized) return blocks;
+
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i]?.type === "text") {
+      blocks[i] = { ...blocks[i], cache_control: normalized };
+      break;
+    }
+  }
+  return blocks;
+}
+
 /**
  * Convert OpenAI chat completions request to Anthropic Messages format.
  * - Extracts `system` messages to top-level `system` field
  * - Maps `max_tokens` (Anthropic requires it)
- * - Flattens content arrays into strings
+ * - Preserves Anthropic `cache_control` on text/tool blocks
  */
 function openaiToAnthropicRequest(body: any): any {
   const thinkingCfg = getClaudeThinkingConfig(body.model || "");
+  const autoPromptCache = body.prompt_cache !== false && body.cache !== false;
   const out: any = {
     model: thinkingCfg.upstreamModel,
     max_tokens: body.max_tokens ?? body.max_completion_tokens ?? 4096,
@@ -339,27 +434,40 @@ function openaiToAnthropicRequest(body: any): any {
   if (thinkingCfg.output_config) out.output_config = thinkingCfg.output_config;
   const tools = getOpenAIFunctionTools(body);
   if (tools.length > 0) {
-    out.tools = tools.map((tool: any) => ({
+    out.tools = tools.map((tool: any) => attachCacheControl({
       name: tool.name,
       description: tool.description || "",
       input_schema: tool.parameters || fallbackJsonSchema(),
-    }));
+    }, tool.cache_control));
   }
   const toolChoice = mapOpenAIToAnthropicToolChoice(body.tool_choice);
   if (toolChoice) out.tool_choice = toolChoice;
 
-  const systemParts: string[] = [];
+  const explicitCacheControl = hasCacheControl(body);
+  const systemBlocks: any[] = [];
+  const systemTextParts: string[] = [];
   if (Array.isArray(body.messages)) {
     for (const m of body.messages) {
       if (!m || typeof m !== "object") continue;
       if (m.role === "system") {
         if (typeof m.content === "string") {
-          systemParts.push(m.content);
+          systemBlocks.push(attachCacheControl({ type: "text", text: m.content }, m.cache_control));
+          systemTextParts.push(m.content);
         } else if (Array.isArray(m.content)) {
-          const texts = m.content
-            .filter((p: any) => p && (p.type === "text" || typeof p === "string"))
-            .map((p: any) => (typeof p === "string" ? p : p.text || ""));
-          systemParts.push(texts.join(""));
+          const blocks: any[] = [];
+          const texts: string[] = [];
+          for (const p of m.content) {
+            if (!p) continue;
+            if (typeof p === "string") {
+              blocks.push({ type: "text", text: p });
+              texts.push(p);
+            } else if (p.type === "text") {
+              blocks.push(attachCacheControl({ type: "text", text: p.text || "" }, p.cache_control));
+              texts.push(p.text || "");
+            }
+          }
+          systemBlocks.push(...attachCacheControlToLastTextBlock(blocks, m.cache_control));
+          systemTextParts.push(texts.join(""));
         }
         continue;
       }
@@ -380,7 +488,7 @@ function openaiToAnthropicRequest(body: any): any {
         for (const p of m.content) {
           if (!p) continue;
           if (typeof p === "string") contentBlocks.push({ type: "text", text: p });
-          else if (p.type === "text") contentBlocks.push({ type: "text", text: p.text || "" });
+          else if (p.type === "text") contentBlocks.push(attachCacheControl({ type: "text", text: p.text || "" }, p.cache_control));
           else if (p.type === "image_url" && p.image_url?.url) {
             const parsed = parseDataUrl(p.image_url.url);
             if (parsed) {
@@ -390,7 +498,7 @@ function openaiToAnthropicRequest(body: any): any {
             }
           }
         }
-        content = contentBlocks;
+        content = attachCacheControlToLastTextBlock(contentBlocks, m.cache_control);
       } else if (content == null) {
         content = "";
       }
@@ -415,7 +523,18 @@ function openaiToAnthropicRequest(body: any): any {
       out.messages.push({ role: m.role === "assistant" ? "assistant" : "user", content });
     }
   }
-  if (systemParts.length > 0) out.system = systemParts.join("\n\n");
+  if (autoPromptCache && !explicitCacheControl) {
+    if (systemBlocks.length > 0) {
+      attachCacheControlToLastTextBlock(systemBlocks, defaultPromptCacheControl());
+    } else if (Array.isArray(out.tools) && out.tools.length > 0) {
+      out.tools[out.tools.length - 1] = attachCacheControl(out.tools[out.tools.length - 1], defaultPromptCacheControl());
+    }
+  }
+  if (systemBlocks.length > 0) {
+    out.system = hasCacheControl(systemBlocks)
+      ? systemBlocks
+      : systemTextParts.join("\n\n");
+  }
   return out;
 }
 
@@ -431,6 +550,28 @@ function mapAnthropicStopReason(stop: string | null | undefined): string | null 
     default:
       return stop || null;
   }
+}
+
+function normalizeOpenAIUsage(usage: any): any {
+  const promptTokens = usage.prompt_tokens || usage.input_tokens || 0;
+  const completionTokens = usage.completion_tokens || usage.output_tokens || 0;
+  const cleaned: any = {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: usage.total_tokens || (promptTokens + completionTokens),
+  };
+  if (usage.prompt_tokens_details && typeof usage.prompt_tokens_details === "object") {
+    cleaned.prompt_tokens_details = { ...usage.prompt_tokens_details };
+  } else if (typeof usage.cached_tokens === "number") {
+    cleaned.prompt_tokens_details = { cached_tokens: usage.cached_tokens };
+  }
+  if (usage.completion_tokens_details && typeof usage.completion_tokens_details === "object") {
+    cleaned.completion_tokens_details = { ...usage.completion_tokens_details };
+  }
+  for (const key of ["cache_read_input_tokens", "cache_creation_input_tokens", "cache_creation"]) {
+    if (usage[key] !== undefined) cleaned[key] = usage[key];
+  }
+  return cleaned;
 }
 
 /**
@@ -464,6 +605,7 @@ function anthropicToOpenaiResponse(data: any, publicModel?: string): any {
   }
   const promptTokens = data.usage?.input_tokens || 0;
   const completionTokens = data.usage?.output_tokens || 0;
+  const cacheReadTokens = data.usage?.cache_read_input_tokens || 0;
   const message: any = { role: "assistant", content: toolCalls.length > 0 && !text ? null : text };
   if (reasoning) message.reasoning_content = reasoning;
   if (toolCalls.length > 0) message.tool_calls = toolCalls;
@@ -483,6 +625,10 @@ function anthropicToOpenaiResponse(data: any, publicModel?: string): any {
       prompt_tokens: promptTokens,
       completion_tokens: completionTokens,
       total_tokens: promptTokens + completionTokens,
+      prompt_tokens_details: { cached_tokens: cacheReadTokens },
+      cache_read_input_tokens: cacheReadTokens,
+      cache_creation_input_tokens: data.usage?.cache_creation_input_tokens || 0,
+      ...(data.usage?.cache_creation ? { cache_creation: data.usage.cache_creation } : {}),
     },
   };
 }
@@ -626,7 +772,7 @@ function googleToOpenaiResponse(data: any, publicModel?: string): any {
 /**
  * Clean upstream OpenAI-format response.
  * - Preserves `reasoning_content` in its own field (never maps to `content`)
- * - Removes non-standard fields like `cached_tokens`, `system_fingerprint`
+ * - Preserves prompt cache usage fields like `prompt_tokens_details.cached_tokens`
  */
 function cleanChatCompletion(data: any, publicModel?: string): any {
   if (!data || typeof data !== "object") return data;
@@ -663,11 +809,7 @@ function cleanChatCompletion(data: any, publicModel?: string): any {
   }
 
   if (data.usage && typeof data.usage === "object") {
-    cleaned.usage = {
-      prompt_tokens: data.usage.prompt_tokens || 0,
-      completion_tokens: data.usage.completion_tokens || 0,
-      total_tokens: data.usage.total_tokens || 0,
-    };
+    cleaned.usage = normalizeOpenAIUsage(data.usage);
   }
 
   return cleaned;
@@ -683,7 +825,7 @@ function cleanChatCompletion(data: any, publicModel?: string): any {
  */
 function cleanSSEDataLine(line: string, publicModel?: string): {
   line: string | null;
-  usage?: { p: number; c: number; t: number };
+  usage?: any;
 } {
   if (!line.startsWith("data: ")) return { line };
   const jsonStr = line.slice(6).trim();
@@ -708,7 +850,7 @@ function cleanSSEDataLine(line: string, publicModel?: string): {
     model: publicModel || data.model || "",
   };
 
-  let extractedUsage: { p: number; c: number; t: number } | undefined;
+  let extractedUsage: any;
 
   if (Array.isArray(data.choices)) {
     cleaned.choices = data.choices.map((choice: any) => {
@@ -726,15 +868,18 @@ function cleanSSEDataLine(line: string, publicModel?: string): {
       };
       // Hoist nested usage from choice to top-level (Bloome quirk)
       if (choice.usage && typeof choice.usage === "object") {
-        const p = choice.usage.prompt_tokens || 0;
-        const c = choice.usage.completion_tokens || 0;
-        cleaned.usage = { prompt_tokens: p, completion_tokens: c, total_tokens: p + c };
-        extractedUsage = { p, c, t: p + c };
+        cleaned.usage = normalizeOpenAIUsage(choice.usage);
+        extractedUsage = cleaned.usage;
       }
       return out;
     });
   } else {
     cleaned.choices = [];
+  }
+
+  if (data.usage && typeof data.usage === "object") {
+    cleaned.usage = normalizeOpenAIUsage(data.usage);
+    extractedUsage = cleaned.usage;
   }
 
   return { line: "data: " + JSON.stringify(cleaned), usage: extractedUsage };
@@ -897,8 +1042,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           } else if (curEvent === "message_delta") {
             if (d.delta?.stop_reason) lastStop = d.delta.stop_reason;
             if (d.usage) {
-              const inT = d.usage.input_tokens || 0, outT = d.usage.output_tokens || 0;
-              lastUsage = { prompt_tokens: inT, completion_tokens: outT, total_tokens: inT + outT };
+              lastUsage = normalizeOpenAIUsage(d.usage);
             }
           } else if (curEvent === "message_stop") {
             await writeChunk({}, sawToolCall ? "tool_calls" : (mapAnthropicStopReason(lastStop) || "stop"), lastUsage);
@@ -1035,6 +1179,8 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   if (gptThinkingCfg.upstreamModel !== body.model) {
     body.model = gptThinkingCfg.upstreamModel;
   }
+  maybeInjectOpenAIPromptCacheKey(body);
+  stripInternalPromptCacheFlags(body);
 
   if (!isStream) {
     const resp = await fetch(`${BLOOME_LLM_BASE}/v1/chat/completions`, {
