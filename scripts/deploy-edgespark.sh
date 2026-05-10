@@ -3,7 +3,16 @@ set -euo pipefail
 
 ALIAS="${1:-gateway}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PROJECT_DIR="$ROOT_DIR/edgespark/$ALIAS"
+PROJECT_DIR="${EDGESPARK_PROJECT_DIR:-}"
+if [[ -z "$PROJECT_DIR" ]]; then
+  for candidate in "$ROOT_DIR/edgespark/$ALIAS" "$ROOT_DIR/../edgespark/$ALIAS"; do
+    if [[ -f "$candidate/edgespark.toml" ]]; then
+      PROJECT_DIR="$(cd "$candidate" && pwd)"
+      break
+    fi
+  done
+fi
+PROJECT_DIR="${PROJECT_DIR:-$ROOT_DIR/edgespark/$ALIAS}"
 SERVER_DIR="$PROJECT_DIR/server"
 SOURCE_SRC="$ROOT_DIR/src/index.ts"
 TARGET_SRC="$SERVER_DIR/src/index.ts"
@@ -34,6 +43,7 @@ fi
 if [[ ! -f "$PROJECT_DIR/edgespark.toml" ]]; then
   echo "Missing EdgeSpark scaffold: $PROJECT_DIR/edgespark.toml"
   echo "Run: bloome edgespark project create --alias $ALIAS (or the equivalent bloome-cli wrapper in shell environments)"
+  echo "If the scaffold is outside this repo, set EDGESPARK_PROJECT_DIR=/absolute/path/to/edgespark/$ALIAS"
   exit 1
 fi
 

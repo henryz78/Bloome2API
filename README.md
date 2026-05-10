@@ -4,6 +4,8 @@
 
 ## 快速开始（本地）
 
+本地运行需要 Bun；如果只是部署到 EdgeSpark 公网，可以直接看 `DEPLOY.md`，不需要在仓库根目录安装 Bun。
+
 ```bash
 bun install
 export BLOOME_API_KEY="你的 Bloome Key"
@@ -58,7 +60,7 @@ Bloome2API/
 - `src/index.ts`
   - 核心网关逻辑
 - `scripts/deploy-edgespark.sh`
-  - 公网 EdgeSpark 部署默认入口：同步源码、patch scaffold、设置运行时变量并完成部署
+  - 公网 EdgeSpark 部署默认入口：自动识别 EdgeSpark 脚手架位置，同步源码、patch scaffold、设置运行时变量并完成部署
 - `DEPLOY.md`
   - 部署 / 热更新 / 运维说明
 

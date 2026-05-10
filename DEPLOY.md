@@ -12,7 +12,7 @@
 
 部署时你**不需要把所有模型重新测一遍**，只需要完成：
 
-1. 本地最小 smoke test
+1. 本地最小 smoke test（如果当前环境有 Bun；云端部署环境没有 Bun 时可以跳过）
 2. EdgeSpark create + pull smoke test
 3. 用 `scripts/deploy-edgespark.sh` 完成公网部署
 4. 验证 `health` / `models` / **一个** `chat/completions`
@@ -44,13 +44,17 @@
 
 ## 第二步：准备本地环境
 
+这个项目本地开发使用 Bun，但 EdgeSpark 公网部署本身不依赖仓库根目录的 Bun。
+
 检查 Bun：
 
 ```bash
 bun --version
 ```
 
-如果没有，再安装：
+如果当前环境没有 Bun，且本次目标只是部署到 EdgeSpark 公网，可以跳过本地 smoke test，直接从第六步开始走 EdgeSpark create / pull / deploy。不要为了云端部署强行在受限容器里手动安装 Bun。
+
+只有需要本地运行 `bun start` 时，才安装 Bun：
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
@@ -62,6 +66,14 @@ curl -fsSL https://bun.sh/install | bash
 cd 项目根目录
 bun install
 ```
+
+如果安装 `@edgespark/cli` 时看到 Node 版本警告，例如：
+
+```text
+EBADENGINE: required { node: ">=22.0.0" }, current { node: "v20.20.2" }
+```
+
+先判断 CLI 是否能继续执行。只要 `edgespark pull` / `edgespark deploy` 能正常运行，这个警告本身不阻塞部署；不要把它当成业务代码错误。
 
 ---
 
@@ -87,7 +99,9 @@ export BLOOME_API_KEY="$RESON_LLM_API_KEY"
 
 ---
 
-## 第四步：本地最小 smoke test
+## 第四步：本地最小 smoke test（可选）
+
+如果当前环境没有 Bun，跳过本节。公网部署后的 `health` / `models` / `chat/completions` 验收才是最终准入标准。
 
 设置好变量后，本地启动：
 
@@ -175,6 +189,17 @@ curl -N -X POST http://localhost:3000/api/public/v1/chat/completions \
 bloome-cli edgespark project create --alias gateway-20260509
 ```
 
+脚手架位置说明：
+
+- 有些环境会生成到仓库内：`Bloome2API/edgespark/gateway-20260509`
+- 有些环境会生成到工作区根目录：`edgespark/gateway-20260509`
+- `scripts/deploy-edgespark.sh` 会自动识别这两种位置
+- 如果生成到了其它位置，执行脚本前设置：
+
+```bash
+export EDGESPARK_PROJECT_DIR="/absolute/path/to/edgespark/gateway-20260509"
+```
+
 重要规则：
 
 - 真正从零部署时，优先 fresh alias，不要默认复用旧 alias
@@ -185,6 +210,8 @@ bloome-cli edgespark project create --alias gateway-20260509
 ## 第八步：先做 pull smoke test
 
 create 成功后，先用对应的 EdgeSpark secret 跑一次 `edgespark pull`。
+
+不要直接运行裸 `npx edgespark ...` 或裸 `edgespark ...`。如果没有登录态，CLI 会返回 `Not authenticated`。在 Agent 环境里固定用 `bloome-cli secret call ... -- bash -c '...'` 注入 `EDGESPARK_API_KEY`。
 
 示例：
 
@@ -215,14 +242,15 @@ export EDGESPARK_API_KEY="从 secret call 注入的值"
 export EDGESPARK_PROJECT_ENVIRONMENT=production
 ```
 
-然后执行：
+然后在 secret call 里执行脚本：
 
 ```bash
-./scripts/deploy-edgespark.sh gateway-20260509
+bloome-cli secret call EDGESPARK_API_KEY__GATEWAY_20260509__XXXX -- bash -c 'export EDGESPARK_API_KEY="$EDGESPARK_API_KEY__GATEWAY_20260509__XXXX"; export BLOOME_API_KEY="你的真实 BLOOME_API_KEY"; export CLIENT_API_KEY="用户给的密码"; export EDGESPARK_PROJECT_ENVIRONMENT=production; ./scripts/deploy-edgespark.sh gateway-20260509'
 ```
 
 这个脚本会自动完成：
 
+- 自动识别 `edgespark/<alias>` 在仓库内还是仓库同级目录
 - 同步 `src/index.ts`
 - 注入 `vars`
 - 注入 `installBloomeBridge(app)`
@@ -295,7 +323,7 @@ curl -X POST https://xxx.edgespark.app/api/public/v1/chat/completions \
   -d '{"model":"kimi-k2.6","messages":[{"role":"user","content":"Say hi"}],"max_tokens":20}'
 ```
 
-返回正常 JSON 且有 `choices` 即可。
+返回正常 JSON 且有 `choices` 即可。某些 reasoning 模型可能出现 `content` 为空、正文或解释主要在 `reasoning_content` 中；这不代表网关失败。只要状态码正常、结构有 `choices`，并且不是鉴权或上游错误即可通过 smoke test。
 
 ---
 
@@ -354,7 +382,7 @@ bloome-cli secret call EDGESPARK_API_KEY__GATEWAY__XXXX -- bash -c 'cd edgespark
 3. 再运行：
 
 ```bash
-./scripts/deploy-edgespark.sh gateway
+bloome-cli secret call EDGESPARK_API_KEY__GATEWAY__XXXX -- bash -c 'export EDGESPARK_API_KEY="$EDGESPARK_API_KEY__GATEWAY__XXXX"; export BLOOME_API_KEY="你的真实 BLOOME_API_KEY"; export CLIENT_API_KEY="用户给的密码"; export EDGESPARK_PROJECT_ENVIRONMENT=production; ./scripts/deploy-edgespark.sh gateway'
 ```
 
 4. 部署后重新做：
@@ -378,6 +406,7 @@ bloome-cli secret call EDGESPARK_API_KEY__GATEWAY__XXXX -- bash -c 'cd edgespark
 6. **每次 deploy 后都要把最新地址重新发给用户**。
 7. **EdgeSpark 部署必须先 smoke test，再 deploy**。
 8. **不要把密钥写进仓库文件或 `edgespark.toml`**。
+9. **EdgeSpark CLI 认证优先走 `bloome-cli secret call`**，不要依赖交互式 `edgespark login`。
 
 ---
 
@@ -389,5 +418,6 @@ bloome-cli secret call EDGESPARK_API_KEY__GATEWAY__XXXX -- bash -c 'cd edgespark
 - ❌ 跳过 deploy 后的 `health` / `models` / chat 验收
 - ❌ 旧 alias 已经脏了还继续反复 deploy
 - ❌ 在 `secret call` 里假设 `$RESON_LLM_API_KEY` 会自动有值
+- ❌ 直接裸跑 `npx edgespark var set`，遇到 `Not authenticated` 后再临时补流程
 - ❌ 用截断方式去取 `BLOOME_API_KEY`
 - ❌ 为了域名后缀差异手动乱改 `EDGESPARK_BASE_URL`
