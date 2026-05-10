@@ -12,7 +12,7 @@
 
 部署时你**不需要把所有模型重新测一遍**，只需要完成：
 
-1. 本地最小 smoke test（如果当前环境有 Bun；云端部署环境没有 Bun 时可以跳过）
+1. 安装 / 确认 Bun，并完成本地最小 smoke test
 2. EdgeSpark create + pull smoke test
 3. 用 `scripts/deploy-edgespark.sh` 完成公网部署
 4. 验证 `health` / `models` / **一个** `chat/completions`
@@ -44,7 +44,7 @@
 
 ## 第二步：准备本地环境
 
-这个项目本地开发使用 Bun，但 EdgeSpark 公网部署本身不依赖仓库根目录的 Bun。
+这个项目本地运行依赖 Bun。即使最终是部署到 EdgeSpark 公网，部署前也必须先跑本地最小 smoke test，确认网关逻辑和上游 key 可用；否则公网部署成功后才发现接口不能用，会浪费一次部署排障。
 
 检查 Bun：
 
@@ -52,12 +52,42 @@
 bun --version
 ```
 
-如果当前环境没有 Bun，且本次目标只是部署到 EdgeSpark 公网，可以跳过本地 smoke test，直接从第六步开始走 EdgeSpark create / pull / deploy。不要为了云端部署强行在受限容器里手动安装 Bun。
-
-只有需要本地运行 `bun start` 时，才安装 Bun：
+如果没有 Bun，先安装：
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
+```
+
+如果环境受限，遇到这些问题：
+
+- 没有 `unzip`
+- 没有 root 权限，不能 `apt-get install unzip`
+- 标准安装脚本不可用
+
+可以手动下载 Bun 的预编译 zip，然后用 Python 解压。示例：
+
+```bash
+curl -L -o /tmp/bun.zip https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-linux-x64.zip
+python3 - <<'PY'
+import zipfile
+from pathlib import Path
+zip_path = Path("/tmp/bun.zip")
+out_dir = Path("/tmp/bun-unzip")
+out_dir.mkdir(parents=True, exist_ok=True)
+with zipfile.ZipFile(zip_path) as z:
+    z.extractall(out_dir)
+print(out_dir)
+PY
+```
+
+然后把解压出来的 `bun` 放到当前环境 PATH 中。如果有权限，可以放到 `/usr/local/bin/`；如果没有权限，就放到可写目录并临时导出 PATH：
+
+```bash
+mkdir -p "$HOME/.local/bin"
+cp /tmp/bun-unzip/bun-linux-x64/bun "$HOME/.local/bin/bun"
+chmod +x "$HOME/.local/bin/bun"
+export PATH="$HOME/.local/bin:$PATH"
+bun --version
 ```
 
 安装依赖：
@@ -99,9 +129,9 @@ export BLOOME_API_KEY="$RESON_LLM_API_KEY"
 
 ---
 
-## 第四步：本地最小 smoke test（可选）
+## 第四步：本地最小 smoke test
 
-如果当前环境没有 Bun，跳过本节。公网部署后的 `health` / `models` / `chat/completions` 验收才是最终准入标准。
+不要跳过本节。公网部署前必须先确认本地代理能启动、能列模型、能完成一个最小 chat 请求。
 
 设置好变量后，本地启动：
 
