@@ -5,14 +5,33 @@ ALIAS="${1:-gateway}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_DIR="$ROOT_DIR/edgespark/$ALIAS"
 SERVER_DIR="$PROJECT_DIR/server"
+SOURCE_SRC="$ROOT_DIR/src/index.ts"
 TARGET_SRC="$SERVER_DIR/src/index.ts"
 TARGET_RUNTIME="$SERVER_DIR/src/defs/runtime.ts"
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "Missing required command: $1"
+    exit 1
+  }
+}
+
+require_cmd edgespark
+require_cmd npm
+require_cmd python3
+require_cmd grep
+require_cmd sed
 
 : "${EDGESPARK_API_KEY:?Missing EDGESPARK_API_KEY}"
 : "${BLOOME_API_KEY:?Missing BLOOME_API_KEY}"
 : "${CLIENT_API_KEY:?Missing CLIENT_API_KEY}"
 
 export EDGESPARK_PROJECT_ENVIRONMENT="${EDGESPARK_PROJECT_ENVIRONMENT:-production}"
+
+if [[ ! -f "$SOURCE_SRC" ]]; then
+  echo "Missing source file: $SOURCE_SRC"
+  exit 1
+fi
 
 if [[ ! -f "$PROJECT_DIR/edgespark.toml" ]]; then
   echo "Missing EdgeSpark scaffold: $PROJECT_DIR/edgespark.toml"
@@ -38,7 +57,7 @@ echo "==> Syncing runtime vars"
   "CLIENT_API_KEY=${CLIENT_API_KEY}")
 
 echo "==> Syncing gateway code into EdgeSpark scaffold"
-cp "$ROOT_DIR/src/index.ts" "$TARGET_SRC"
+cp "$SOURCE_SRC" "$TARGET_SRC"
 
 if ! grep -q '^import { vars } from "edgespark";$' "$TARGET_SRC"; then
   sed -i '1s/^/import { vars } from "edgespark";\n/' "$TARGET_SRC"
