@@ -2,33 +2,6 @@
 
 一个把 Bloome 内置 LLM 代理转换成 OpenAI 兼容接口的网关。
 
-## 你现在最该用哪个入口
-
-如果你的场景是：
-
-- 把仓库交给 AI / Agent
-- 让它自己从零部署到 EdgeSpark
-- 尽量少人工干预
-
-那**优先用这两个文件**：
-
-- `scripts/zero-deploy.sh`
-- `DEPLOY_AGENT.md`
-
-也就是：
-
-```bash
-BLOOME_API_KEY="..." CLIENT_API_KEY="..." ./scripts/zero-deploy.sh
-```
-
-或者指定 fresh alias：
-
-```bash
-BLOOME_API_KEY="..." CLIENT_API_KEY="..." ./scripts/zero-deploy.sh gateway-20260509
-```
-
----
-
 ## 快速开始（本地）
 
 ```bash
@@ -54,7 +27,11 @@ bun start
 - Models: `GET /api/public/v1/models`
 - Chat: `POST /api/public/v1/chat/completions`
 
----
+## 部署说明
+
+看根目录：
+
+- `DEPLOY.md`
 
 ## 仓库结构
 
@@ -63,14 +40,12 @@ Bloome2API/
 ├── src/
 │   └── index.ts
 ├── scripts/
-│   ├── zero-deploy.sh
 │   ├── deploy-edgespark.sh
 │   └── verify-gemini-thinking.js
 ├── docs/
-│   ├── DEPLOY.md
 │   ├── MODELS.md
 │   └── THINKING.md
-├── DEPLOY_AGENT.md
+├── DEPLOY.md
 ├── README.md
 └── package.json
 ```
@@ -81,40 +56,17 @@ Bloome2API/
 
 - `src/index.ts`
   - 核心网关逻辑
-- `scripts/zero-deploy.sh`
-  - 给 Agent 用的一键从零部署入口
 - `scripts/deploy-edgespark.sh`
   - 把源码同步进 EdgeSpark scaffold 并完成部署
-- `DEPLOY_AGENT.md`
-  - 给 AI / Agent 的超短执行说明
+- `DEPLOY.md`
+  - 部署 / 热更新 / 运维说明
 
 ### `docs/` 里的参考资料
 
-- `docs/DEPLOY.md`
-  - 更完整的部署 / 热更新 / 运维说明
 - `docs/MODELS.md`
   - 模型白名单、真实上游映射、协议入口记录
 - `docs/THINKING.md`
   - `-thinking` alias、reasoning_content、thinking 兼容说明
-
----
-
-## 推荐用法
-
-### 用人手动部署
-看：
-
-- `docs/DEPLOY.md`
-
-### 用 AI / Agent 自动部署
-看：
-
-- `DEPLOY_AGENT.md`
-- `scripts/zero-deploy.sh`
-
-这个仓库现在默认更偏向第二种。
-
----
 
 ## 额外说明
 
@@ -139,4 +91,4 @@ Bloome2API/
 直接换 fresh alias，不要在旧 alias 上硬修。
 
 ### 3. 如果要查模型和 thinking 细节
-去 `docs/` 看，不要先翻主 README。
+去 `docs/` 看。
