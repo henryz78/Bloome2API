@@ -43,6 +43,9 @@
 - `claude-opus-4-7-thinking`
 - `gemini-3.1-pro-thinking`
 - `gemini-3-flash-thinking`
+
+未来如果引入 Responses API reasoning summary，再考虑新增：
+
 - `gpt-5.4-thinking`
 - `gpt-5.4-mini-thinking`
 
@@ -111,9 +114,9 @@ thinkingConfig: {
 
 后，确实会返回 `parts[].thought`。
 
-## 第三批：GPT-5 家族
+## 未来候选：GPT-5 家族
 
-建议最后支持：
+当前尚未实现；如果后续引入 Responses API reasoning summary，再考虑支持：
 
 - `gpt-5.4-thinking`
 - `gpt-5.4-mini-thinking`
