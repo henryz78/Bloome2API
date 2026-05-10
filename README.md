@@ -4,7 +4,9 @@
 
 ## 快速开始（本地）
 
-本地运行需要 Bun；如果只是部署到 EdgeSpark 公网，可以直接看 `DEPLOY.md`，不需要在仓库根目录安装 Bun。
+本地运行需要 Bun。**部署到 EdgeSpark 公网之前，强烈建议先完成本地 smoke test 验证**，否则无法提前发现 API Key、模型 alias 或业务逻辑问题。
+
+如果当前环境没有 Bun，参考 `DEPLOY.md` 的「踩坑记录」手动安装（受限容器也能装）。
 
 ```bash
 bun install

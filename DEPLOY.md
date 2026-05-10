@@ -410,10 +410,173 @@ bloome-cli secret call EDGESPARK_API_KEY__GATEWAY__XXXX -- bash -c 'export EDGES
 
 ---
 
+## 踩坑记录 / 已知问题与排查
+
+> 以下问题均来自真实部署环境（受限容器 / CI / Agent 沙箱）。
+> **部署到外网之前，必须先通过本地 smoke test 验证可用性**，否则部署了也是废的。
+
+### 1. 本地 smoke test 不是可选的
+
+**原则：必须先本地验证，再推上公网。**
+
+本地验证能提前发现：
+- 上游 API Key 是否有效
+- 模型 alias 是否已激活
+- 业务代码是否编译/运行正常
+- SSE / 协议转换是否工作
+
+如果环境没有 Bun，**安装它**，而不是跳过本地测试。
+
+---
+
+### 2. 环境没有 Bun
+
+**现象：**
+```bash
+bun --version
+# → command not found
+```
+
+**解决：** 手动下载预编译二进制（容器通常没有包管理器权限）：
+
+```bash
+# 1. 下载
+curl -L -o /tmp/bun.zip "https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-linux-x64.zip"
+
+# 2. 解压（如果没有 unzip，用 Python）
+python3 -m zipfile -e /tmp/bun.zip /tmp/bun
+
+# 3. 放到 PATH
+mkdir -p ~/.local/bin
+cp /tmp/bun/bun-linux-x64/bun ~/.local/bin/bun
+chmod +x ~/.local/bin/bun
+export PATH="$HOME/.local/bin:$PATH"
+
+# 4. 验证
+bun --version
+```
+
+**注意：**
+- 下载后务必 `chmod +x`，否则二进制没有执行权限。
+- 如果容器连 `curl` 都没有，用 `wget` 或 `python3 -c "import urllib.request; urllib.request.urlretrieve(url, path)"`。
+- 当前最新稳定版是 v1.3.13，如果链接失效，去 [oven-sh/bun releases](https://github.com/oven-sh/bun/releases) 找对应平台的 `bun-linux-x64.zip`。
+
+---
+
+### 3. 没有 unzip / 无 root 权限
+
+**现象：**
+```bash
+curl -fsSL https://bun.sh/install | bash
+# → error: unzip is required to install bun
+
+apt-get install unzip
+# → E: Permission denied
+```
+
+**解决：** 用 Python 内建的 `zipfile` 模块解压，不需要 root，也不需要 unzip：
+```bash
+python3 -m zipfile -e /tmp/bun.zip /tmp/bun
+```
+
+---
+
+### 4. Node.js 版本警告（不阻塞）
+
+**现象：**
+```text
+EBADENGINE: required { node: ">=22.0.0" }, current { node: "v20.20.2" }
+```
+
+**判断：** 只要 `edgespark pull` / `edgespark deploy` 能正常执行，这个警告**不阻塞部署**。
+
+**不要：** 花时间去升级 Node 或修复这个警告。
+
+---
+
+### 5. 裸跑 `edgespark` 命令返回 `Not authenticated`
+
+**现象：**
+```bash
+edgespark var set BLOOME_API_KEY=xxx
+# → ✖ Not authenticated
+# → Run: edgespark login
+```
+
+**原因：** Agent / CI 环境没有交互式终端，无法执行 `edgespark login`。
+
+**解决：** 固定用 `bloome-cli secret call` 注入 `EDGESPARK_API_KEY`：
+
+```bash
+bloome-cli secret call EDGESPARK_API_KEY__GATEWAY__XXXX -- bash -c 'cd edgespark/gateway && EDGESPARK_API_KEY="$EDGESPARK_API_KEY__GATEWAY__XXXX" EDGESPARK_PROJECT_ENVIRONMENT=production edgespark pull'
+```
+
+**永远不要：** 先裸跑 `npx edgespark xxx` 或 `edgespark xxx`，等报错后再回头补 `secret call`。
+
+---
+
+### 6. EdgeSpark 脚手架位置不确定
+
+**现象：** `scripts/deploy-edgespark.sh` 报：
+```text
+Missing EdgeSpark scaffold: .../edgespark.toml
+```
+
+**原因：** `bloome edgespark project create` 生成的 `edgespark/<alias>/` 目录位置因环境而异：
+- 有些环境生成在 **仓库内**：`Bloome2API/edgespark/gateway/`
+- 有些环境生成在 **工作区根目录**：`edgespark/gateway/`
+
+**解决：** 最新版脚本已自动探测两种位置。如果仍然找不到，手动指定：
+```bash
+export EDGESPARK_PROJECT_DIR="/absolute/path/to/edgespark/gateway"
+./scripts/deploy-edgespark.sh gateway
+```
+
+---
+
+### 7. Chat smoke test 返回空 `content`
+
+**现象：**
+```json
+{
+  "choices": [{
+    "message": {
+      "role": "assistant",
+      "content": "",
+      "reasoning_content": "The user said..."
+    }
+  }]
+}
+```
+
+**原因：** 某些 reasoning 模型（如 `kimi-k2.6`）会把思考过程放在 `reasoning_content`，正式回复放在 `content`。当 `max_tokens` 较小时，可能只截断到思考阶段。
+
+**判断：** 只要状态码 200、结构有 `choices`、没有鉴权或上游错误，就算通过。
+
+**不要：** 因为 `content` 为空就怀疑网关坏了。
+
+---
+
+### 8. GitHub 仓库是私有的
+
+**现象：**
+```bash
+git clone https://github.com/HenryZ-0302/Bloome2API.git
+# → fatal: could not read Username for 'https://github.com'
+```
+
+**解决：** 用 Personal Access Token 嵌入 URL：
+```bash
+git clone "https://github_pat_XXX@github.com/HenryZ-0302/Bloome2API.git"
+```
+
+---
+
 ## 不要做的事
 
 - ❌ 把 API key 写死在代码里
 - ❌ 猜模型名然后直接加到列表里
+- ❌ 跳过本地 smoke test（Bun 没有就装，不要跳过）
 - ❌ 跳过 pull smoke test
 - ❌ 跳过 deploy 后的 `health` / `models` / chat 验收
 - ❌ 旧 alias 已经脏了还继续反复 deploy
@@ -421,3 +584,4 @@ bloome-cli secret call EDGESPARK_API_KEY__GATEWAY__XXXX -- bash -c 'export EDGES
 - ❌ 直接裸跑 `npx edgespark var set`，遇到 `Not authenticated` 后再临时补流程
 - ❌ 用截断方式去取 `BLOOME_API_KEY`
 - ❌ 为了域名后缀差异手动乱改 `EDGESPARK_BASE_URL`
+- ❌ 遇到 unzip 缺失就放弃 Bun 安装（用 Python zipfile）
