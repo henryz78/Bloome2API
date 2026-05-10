@@ -359,25 +359,30 @@ curl -X POST https://xxx.edgespark.app/api/public/v1/chat/completions \
 
 ## 第十一步：向用户汇报最终可用配置
 
-不要只说“部署成功了”。
+### 成功时
 
-必须明确返回：
+只返回两句：
 
-- alias
-- base URL
-- API 前缀
-- CLIENT_API_KEY
-- verify 结果
-- health 结果
-- models（带 key）结果
-- models（不带 key）结果
-- 单模型 chat smoke test 结果
+1. **部署成功**
+2. 用户可直接复制的配置：
 
-例如：
+```
+Base URL: https://xxx.edgespark.app/api/public/v1
+API Key: 你的CLIENT_API_KEY
+```
 
-- 公网地址：`https://xxx.edgespark.app`
-- API 前缀：`https://xxx.edgespark.app/api/public/v1`
-- API Key：`CLIENT_API_KEY`
+不需要展开解释 verify / health / models / chat 等中间验收项。这些验收项在部署过程中已由 Agent 自行确认，成功后无需向用户汇报细节。
+
+### 失败时
+
+说明具体失败环节，例如：
+
+- `verify` 未通过
+- `health` 缺少 `BLOOME_API_KEY` 或 `CLIENT_API_KEY`
+- `models` 返回异常
+- `chat/completions` 调用失败
+
+并给出下一步建议（重试、换 alias、检查上游 Key 等）。
 
 ---
 
