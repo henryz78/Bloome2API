@@ -36,6 +36,7 @@ bun start
 看根目录：
 
 - `DEPLOY.md`
+- `DEPLOY_NOTES.md`
 
 ## 仓库结构
 
@@ -62,7 +63,9 @@ Bloome2API/
 - `scripts/deploy-edgespark.sh`
   - 公网 EdgeSpark 部署默认入口：自动识别 EdgeSpark 脚手架位置，同步源码、patch scaffold、设置运行时变量并完成部署
 - `DEPLOY.md`
-  - 部署 / 热更新 / 运维说明
+  - 干净的部署 / 热更新主流程
+- `DEPLOY_NOTES.md`
+  - 环境坑、认证坑、安全禁忌和排障备忘
 
 ### `docs/` 里的参考资料
 
