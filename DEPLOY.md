@@ -363,11 +363,15 @@ curl -X POST https://xxx.edgespark.app/api/public/v1/chat/completions \
 
 ```
 🎉 Bloome2API 部署成功
+```
 
-Base URL
+**Base URL**
+```
 https://xxx.edgespark.app/api/public/v1
+```
 
-API Key
+**API Key**
+```
 你的CLIENT_API_KEY
 ```
 
