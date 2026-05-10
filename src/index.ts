@@ -26,6 +26,29 @@ function getEnv(c: Context, key: RuntimeKey): string {
   return "";
 }
 
+function secureCompare(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const aBytes = enc.encode(a);
+  const bBytes = enc.encode(b);
+  const len = Math.max(aBytes.length, bBytes.length);
+  let diff = aBytes.length ^ bBytes.length;
+  for (let i = 0; i < len; i++) {
+    diff |= (aBytes[i] ?? 0) ^ (bBytes[i] ?? 0);
+  }
+  return diff === 0;
+}
+
+function getClientToken(c: Context): string {
+  const auth = c.req.header("authorization");
+  if (auth) {
+    const bearer = auth.replace(/^Bearer\s+/i, "").trim();
+    if (bearer) return bearer;
+  }
+  const xApiKey = c.req.header("x-api-key")?.trim();
+  if (xApiKey) return xApiKey;
+  return "";
+}
+
 const API_PREFIX = process.env.API_PREFIX || "/api/public/v1";
 app.get(`${API_PREFIX}/health`, (c) => c.json({
   status: "ok",
@@ -43,13 +66,8 @@ app.use(`${API_PREFIX}/*`, async (c, next) => {
 
   const expectedKey = getEnv(c, "CLIENT_API_KEY");
   if (expectedKey) {
-    const token =
-      c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ||
-      c.req.header("x-goog-api-key") ||
-      c.req.header("x-api-key") ||
-      c.req.query("key") ||
-      "";
-    if (token !== expectedKey) {
+    const token = getClientToken(c);
+    if (!secureCompare(token, expectedKey)) {
       return c.json({ error: { message: "Invalid API key", type: "authentication_error" } }, 401);
     }
   }
