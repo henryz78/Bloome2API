@@ -35,7 +35,7 @@
 - `POST /api/public/v1/chat/completions`：OpenAI 兼容聊天接口
 - Claude / MiniMax 自动转 Anthropic `/v1/messages`
 - Gemini 自动转 Google `generateContent` / `streamGenerateContent`
-- Claude / MiniMax / Gemini 支持非流式 OpenAI `tools` / `tool_calls`
+- Claude / MiniMax / Gemini 支持 OpenAI `tools` / `tool_calls`，包括普通响应和流式响应
 - GPT-5.x / `o*` 自动把 `max_tokens` 改写为 `max_completion_tokens`
 - 清洗上游响应中的非标准字段与脏 SSE chunk
 
@@ -443,7 +443,7 @@ bloome-cli secret call EDGESPARK_API_KEY__GATEWAY__XXXX -- bash -c 'export EDGES
 7. **EdgeSpark 部署必须先 smoke test，再 deploy**。
 8. **不要把密钥写进仓库文件或 `edgespark.toml`**。
 9. **EdgeSpark CLI 认证优先走 `bloome-cli secret call`**，不要依赖交互式 `edgespark login`。
-10. **Claude / MiniMax / Gemini 目前只支持非流式工具调用**；带工具时使用 `stream: false`。
+10. **Claude / MiniMax / Gemini 支持新版 `tools` / `tool_calls`**；不要使用旧版 `functions` / `function_call`。
 
 ---
 

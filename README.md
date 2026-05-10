@@ -75,7 +75,7 @@ Bloome2API/
 
 ### 1. 工具调用支持
 
-Claude / MiniMax / Gemini 已支持 OpenAI 风格的非流式 `tools` / `tool_calls`。当前不支持流式工具调用；需要工具调用时请使用 `stream: false`。
+Claude / MiniMax / Gemini 已支持 OpenAI 风格的 `tools` / `tool_calls`，包括普通响应和流式响应。旧版 `functions` / `function_call` 不支持，请使用新版 `tools`。
 
 ### 2. 真正的源码源头
 永远是：

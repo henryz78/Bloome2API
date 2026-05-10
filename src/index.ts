@@ -220,6 +220,17 @@ function hasToolUse(body: any): boolean {
   );
 }
 
+function openAIToolCallDelta(index: number, id?: string, name?: string, argumentsDelta?: string): any {
+  const toolCall: any = { index };
+  if (id !== undefined) toolCall.id = id;
+  if (id !== undefined || name !== undefined) toolCall.type = "function";
+  const fn: any = {};
+  if (name !== undefined) fn.name = name;
+  if (argumentsDelta !== undefined) fn.arguments = argumentsDelta;
+  if (Object.keys(fn).length > 0) toolCall.function = fn;
+  return { tool_calls: [toolCall] };
+}
+
 function getOpenAIFunctionTools(body: any): any[] {
   if (!Array.isArray(body?.tools)) return [];
   return body.tools
@@ -778,15 +789,6 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       },
     }, 400);
   }
-  if (needsProtocolTranslation && isStream && hasToolUse(body)) {
-    return c.json({
-      error: {
-        message: "Streaming tool calls are not supported for translated Anthropic or Gemini requests; use stream=false",
-        type: "invalid_request_error",
-      },
-    }, 400);
-  }
-
   // ===== Branch 1: Anthropic-compatible models → translate to Anthropic =====
   if (isAnthropicModel(body.model)) {
     const thinkingCfg = getClaudeThinkingConfig(body.model);
@@ -829,6 +831,8 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       let buffer = "";
       let chunkId = "", chunkModel = thinkingCfg.publicModel;
       let roleSent = false, lastStop: string | null = null, lastUsage: any = null;
+      let sawToolCall = false;
+      const toolBlockIndexes = new Map<number, number>();
 
       const writeChunk = async (delta: any, finish_reason: string | null = null, usage: any = null) => {
         const obj: any = {
@@ -852,12 +856,29 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
             const m = d.message || {};
             chunkId = m.id || chunkId;
             if (!roleSent) { await writeChunk({ role: "assistant", content: "" }); roleSent = true; }
+          } else if (curEvent === "content_block_start") {
+            const block = d.content_block || {};
+            if (block.type === "tool_use" && block.name) {
+              if (!roleSent) { await writeChunk({ role: "assistant", content: "" }); roleSent = true; }
+              const blockIndex = typeof d.index === "number" ? d.index : toolBlockIndexes.size;
+              const toolIndex = toolBlockIndexes.size;
+              toolBlockIndexes.set(blockIndex, toolIndex);
+              sawToolCall = true;
+              await writeChunk(openAIToolCallDelta(toolIndex, block.id || `call_${toolIndex}`, block.name, ""));
+            }
           } else if (curEvent === "content_block_delta") {
             const dl = d.delta || {};
             if (dl.type === "text_delta" && typeof dl.text === "string" && dl.text) {
               await writeChunk({ content: dl.text });
             } else if (dl.type === "thinking_delta" && typeof dl.thinking === "string" && dl.thinking) {
               await writeChunk({ reasoning_content: dl.thinking });
+            } else if (dl.type === "input_json_delta" && typeof dl.partial_json === "string") {
+              const blockIndex = typeof d.index === "number" ? d.index : -1;
+              const toolIndex = toolBlockIndexes.get(blockIndex);
+              if (toolIndex !== undefined && dl.partial_json) {
+                sawToolCall = true;
+                await writeChunk(openAIToolCallDelta(toolIndex, undefined, undefined, dl.partial_json));
+              }
             }
           } else if (curEvent === "message_delta") {
             if (d.delta?.stop_reason) lastStop = d.delta.stop_reason;
@@ -866,7 +887,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
               lastUsage = { prompt_tokens: inT, completion_tokens: outT, total_tokens: inT + outT };
             }
           } else if (curEvent === "message_stop") {
-            await writeChunk({}, mapAnthropicStopReason(lastStop) || "stop", lastUsage);
+            await writeChunk({}, sawToolCall ? "tool_calls" : (mapAnthropicStopReason(lastStop) || "stop"), lastUsage);
           }
           curEvent = ""; curData = "";
         };
@@ -922,6 +943,9 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       const decoder = new TextDecoder();
       let buffer = "";
       let chunkId = "", chunkModel = googleCfg.publicModel, roleSent = false;
+      let sawToolCall = false;
+      let nextToolIndex = 0;
+      const googleToolCallIndexes = new Map<string, number>();
       
       const writeChunk = async (delta: any, finish_reason: string | null = null, usage: any = null) => {
         const obj: any = {
@@ -952,6 +976,22 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
                 chunkId = d.responseId || chunkId;
                 if (!roleSent) { await writeChunk({ role: "assistant", content: "" }); roleSent = true; }
                 for (const part of parts) {
+                  if (part?.functionCall?.name) {
+                    const name = part.functionCall.name;
+                    let toolIndex = googleToolCallIndexes.get(name);
+                    if (toolIndex === undefined) {
+                      toolIndex = nextToolIndex++;
+                      googleToolCallIndexes.set(name, toolIndex);
+                    }
+                    sawToolCall = true;
+                    await writeChunk(openAIToolCallDelta(
+                      toolIndex,
+                      `call_${toolIndex}`,
+                      name,
+                      stringifyToolArguments(part.functionCall.args),
+                    ));
+                    continue;
+                  }
                   const textDelta = part?.text || "";
                   if (!textDelta) continue;
                   if (part?.thought === true) await writeChunk({ reasoning_content: textDelta });
@@ -959,7 +999,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
                 }
                 if (finishReason) {
                   const usage = d.usageMetadata ? { prompt_tokens: d.usageMetadata.promptTokenCount || 0, completion_tokens: d.usageMetadata.candidatesTokenCount || 0, total_tokens: d.usageMetadata.totalTokenCount || 0 } : null;
-                  await writeChunk({}, mapGoogleFinishReason(finishReason) || "stop", usage);
+                  await writeChunk({}, sawToolCall ? "tool_calls" : (mapGoogleFinishReason(finishReason) || "stop"), usage);
                 }
               } catch (e) {}
             }
