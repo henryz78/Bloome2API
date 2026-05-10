@@ -40,8 +40,7 @@ Bloome2API/
 ├── src/
 │   └── index.ts
 ├── scripts/
-│   ├── deploy-edgespark.sh
-│   └── verify-gemini-thinking.js
+│   └── deploy-edgespark.sh
 ├── docs/
 │   ├── MODELS.md
 │   └── THINKING.md

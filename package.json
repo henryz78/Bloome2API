@@ -6,8 +6,7 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "start": "bun run src/index.ts",
-    "verify:gemini-thinking": "node ./scripts/verify-gemini-thinking.js"
+    "start": "bun run src/index.ts"
   },
   "dependencies": {
     "hono": "^4.0.0"
