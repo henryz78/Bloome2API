@@ -43,9 +43,6 @@
 - `claude-opus-4-7-thinking`
 - `gemini-3.1-pro-thinking`
 - `gemini-3-flash-thinking`
-
-未来如果引入 Responses API reasoning summary，再考虑新增：
-
 - `gpt-5.4-thinking`
 - `gpt-5.4-mini-thinking`
 
@@ -114,18 +111,24 @@ thinkingConfig: {
 
 后，确实会返回 `parts[].thought`。
 
-## 未来候选：GPT-5 家族
+## 第三批：GPT-5 家族
 
-当前尚未实现；如果后续引入 Responses API reasoning summary，再考虑支持：
+当前已实现：
 
 - `gpt-5.4-thinking`
 - `gpt-5.4-mini-thinking`
 
-原因：
+实现方式：
+
+- 对外保留 `-thinking` alias
+- 上游请求映射回普通模型：`gpt-5.4` / `gpt-5.4-mini`
+- 代理注入 `reasoning_effort: "medium"`
+
+注意：
 
 - GPT-5 官方 reasoning 更适合走 Responses API
-- Chat Completions 往往只能看到 `reasoning_tokens` 计数，拿不到可见 reasoning 文本
-- 是否能真正暴露“可见思考”，取决于是否引入 Responses API summary 兼容层
+- Chat Completions 可能只能看到 reasoning token 计数，不一定返回可见 reasoning 文本
+- 如果未来需要可见 reasoning summary，再评估是否引入 Responses API 路径
 
 ## Claude 家族的已确认行为
 
