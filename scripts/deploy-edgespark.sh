@@ -35,7 +35,7 @@ fi
 
 if [[ ! -f "$PROJECT_DIR/edgespark.toml" ]]; then
   echo "Missing EdgeSpark scaffold: $PROJECT_DIR/edgespark.toml"
-  echo "Run: bloome-cli edgespark project create --alias $ALIAS"
+  echo "Run: bloome edgespark project create --alias $ALIAS (or the equivalent bloome-cli wrapper in shell environments)"
   exit 1
 fi
 
