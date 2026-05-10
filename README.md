@@ -56,7 +56,7 @@ Bloome2API/
 - `src/index.ts`
   - 核心网关逻辑
 - `scripts/deploy-edgespark.sh`
-  - 把源码同步进 EdgeSpark scaffold 并完成部署
+  - 公网 EdgeSpark 部署默认入口：同步源码、patch scaffold、设置运行时变量并完成部署
 - `DEPLOY.md`
   - 部署 / 热更新 / 运维说明
 
