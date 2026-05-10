@@ -233,9 +233,8 @@ function hasToolUse(body: any): boolean {
 }
 
 function openAIToolCallDelta(index: number, id?: string, name?: string, argumentsDelta?: string): any {
-  const toolCall: any = { index };
+  const toolCall: any = { index, type: "function" };
   if (id !== undefined) toolCall.id = id;
-  if (id !== undefined || name !== undefined) toolCall.type = "function";
   const fn: any = {};
   if (name !== undefined) fn.name = name;
   if (argumentsDelta !== undefined) fn.arguments = argumentsDelta;
@@ -645,9 +644,12 @@ function cleanChatCompletion(data: any, publicModel?: string): any {
       const msg: any = { role: "assistant", content: "" };
       if (choice.message) {
         msg.role = choice.message.role || "assistant";
-        msg.content = choice.message.content ?? "";
+        msg.content = choice.message.content ?? (Array.isArray(choice.message.tool_calls) ? null : "");
         if (choice.message.reasoning_content !== undefined) {
           msg.reasoning_content = choice.message.reasoning_content;
+        }
+        if (Array.isArray(choice.message.tool_calls)) {
+          msg.tool_calls = choice.message.tool_calls;
         }
       }
       return {
@@ -1027,7 +1029,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
 
   // ===== Branch 2: OpenAI native upstream (Kimi / GPT) =====
   const gptThinkingCfg = getGPTThinkingConfig(body.model);
-  if (gptThinkingCfg.reasoningEffort) {
+  if (gptThinkingCfg.reasoningEffort && body.reasoning_effort === undefined) {
     body.reasoning_effort = gptThinkingCfg.reasoningEffort;
   }
   if (gptThinkingCfg.upstreamModel !== body.model) {
