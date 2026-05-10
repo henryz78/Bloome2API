@@ -14,8 +14,10 @@ bun start
 本地默认地址：
 
 - Base URL: `http://localhost:3000`
-- Models: `GET /v1/models`
-- Chat: `POST /v1/chat/completions`
+- API 前缀: `/api/public/v1`
+- Health: `GET /api/public/v1/health`
+- Models: `GET /api/public/v1/models`
+- Chat: `POST /api/public/v1/chat/completions`
 
 ## EdgeSpark 部署后的接口
 

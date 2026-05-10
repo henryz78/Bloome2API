@@ -19,8 +19,6 @@ require_cmd() {
 require_cmd edgespark
 require_cmd npm
 require_cmd python3
-require_cmd grep
-require_cmd sed
 
 : "${EDGESPARK_API_KEY:?Missing EDGESPARK_API_KEY}"
 : "${BLOOME_API_KEY:?Missing BLOOME_API_KEY}"
@@ -59,19 +57,41 @@ echo "==> Syncing runtime vars"
 echo "==> Syncing gateway code into EdgeSpark scaffold"
 cp "$SOURCE_SRC" "$TARGET_SRC"
 
-if ! grep -q '^import { vars } from "edgespark";$' "$TARGET_SRC"; then
-  sed -i '1s/^/import { vars } from "edgespark";\n/' "$TARGET_SRC"
-fi
+python3 - <<'PY' "$TARGET_SRC"
+from pathlib import Path
+import re
+import sys
 
-sed -i 's|// __EDGESPARK_INJECT_VARS__|try { const v = vars.get(key as RuntimeKey); if (v) return v; } catch(e) {}|' "$TARGET_SRC"
+p = Path(sys.argv[1])
+text = p.read_text()
 
-if ! grep -q '^import { installBloomeBridge } from "\./bloome-bridge";$' "$TARGET_SRC"; then
-  sed -i '1a import { installBloomeBridge } from "./bloome-bridge";' "$TARGET_SRC"
-fi
+imports = [
+    'import { vars } from "edgespark";',
+    'import { installBloomeBridge } from "./bloome-bridge";',
+]
+for imp in reversed(imports):
+    if imp not in text:
+        text = imp + "\n" + text
 
-if ! grep -q '^installBloomeBridge(app);$' "$TARGET_SRC"; then
-  sed -i 's|const app = new Hono();|const app = new Hono();\n\ninstallBloomeBridge(app);|' "$TARGET_SRC"
-fi
+marker = "// __EDGESPARK_INJECT_VARS__"
+vars_lookup = 'try { const v = vars.get(key as RuntimeKey); if (v) return v; } catch(e) {}'
+if marker in text:
+    text = text.replace(marker, vars_lookup, 1)
+elif vars_lookup not in text:
+    raise SystemExit(f"Missing EdgeSpark vars injection marker in {p}")
+
+if "installBloomeBridge(app);" not in text:
+    text, count = re.subn(
+        r"const\s+app\s*=\s*new\s+Hono\s*\(\s*\)\s*;",
+        "const app = new Hono();\n\ninstallBloomeBridge(app);",
+        text,
+        count=1,
+    )
+    if count != 1:
+        raise SystemExit(f"Could not find Hono app declaration in {p}")
+
+p.write_text(text)
+PY
 
 echo "==> Patching EdgeSpark runtime VarKey"
 python3 - <<'PY' "$TARGET_RUNTIME"

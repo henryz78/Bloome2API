@@ -31,9 +31,9 @@
 
 理解它的职责：
 
-- `GET /v1/models`：返回模型列表
-- `POST /v1/chat/completions`：OpenAI 兼容聊天接口
-- Claude 自动转 Anthropic `/v1/messages`
+- `GET /api/public/v1/models`：返回模型列表
+- `POST /api/public/v1/chat/completions`：OpenAI 兼容聊天接口
+- Claude / MiniMax 自动转 Anthropic `/v1/messages`
 - Gemini 自动转 Google `generateContent` / `streamGenerateContent`
 - GPT-5.x / `o*` 自动把 `max_tokens` 改写为 `max_completion_tokens`
 - 清洗上游响应中的非标准字段与脏 SSE chunk
@@ -103,7 +103,7 @@ bun start
 ### 4.1 模型列表
 
 ```bash
-curl http://localhost:3000/api/public/v1/models
+curl -H "Authorization: Bearer 用户给的密码" http://localhost:3000/api/public/v1/models
 ```
 
 应该返回 JSON，且有 `data` 数组。
@@ -116,6 +116,7 @@ curl http://localhost:3000/api/public/v1/models
 
 ```bash
 curl -X POST http://localhost:3000/api/public/v1/chat/completions \
+  -H "Authorization: Bearer 用户给的密码" \
   -H "Content-Type: application/json" \
   -d '{"model":"kimi-k2.6","messages":[{"role":"user","content":"Say hi"}],"max_tokens":20}'
 ```
@@ -131,6 +132,7 @@ curl -X POST http://localhost:3000/api/public/v1/chat/completions \
 
 ```bash
 curl -N -X POST http://localhost:3000/api/public/v1/chat/completions \
+  -H "Authorization: Bearer 用户给的密码" \
   -H "Content-Type: application/json" \
   -d '{"model":"kimi-k2.6","messages":[{"role":"user","content":"Say hi"}],"stream":true}'
 ```
@@ -230,7 +232,7 @@ export EDGESPARK_PROJECT_ENVIRONMENT=production
 - `npm install`
 - `edgespark deploy`
 
-**不要把手工 `cp` / `sed` / patch 流程当主路径。**
+**不要把手工复制 / patch 流程当主路径。**
 那些只用于：
 
 - 理解脚本内部做了什么
@@ -372,7 +374,7 @@ bloome-cli secret call EDGESPARK_API_KEY__GATEWAY__XXXX -- bash -c 'cd edgespark
 2. **alias 写法必须精确**：`claude-opus-4-7` ≠ `claude-opus-4.7`；`gpt-5.4` ≠ `gpt-5-4`。
 3. **不要动 SSE 清洗逻辑**：`cleanSSEDataLine` 里对空 `choices` 的过滤不能删。
 4. **不要把 `reasoning_content` 映射到 `content`**。
-5. **Claude 只能走 `/v1/messages`**，不要拿 `/v1/chat/completions` 直接调上游 Claude。
+5. **Claude / MiniMax 只能走 `/v1/messages`**，不要拿 `/v1/chat/completions` 直接调这些 Anthropic 兼容模型。
 6. **每次 deploy 后都要把最新地址重新发给用户**。
 7. **EdgeSpark 部署必须先 smoke test，再 deploy**。
 8. **不要把密钥写进仓库文件或 `edgespark.toml`**。

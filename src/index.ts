@@ -26,6 +26,13 @@ function getEnv(c: Context, key: RuntimeKey): string {
   return "";
 }
 
+function getProcessEnv(key: string): string {
+  if (typeof process !== "undefined" && process.env && process.env[key]) {
+    return process.env[key] as string;
+  }
+  return "";
+}
+
 function secureCompare(a: string, b: string): boolean {
   const enc = new TextEncoder();
   const aBytes = enc.encode(a);
@@ -49,7 +56,7 @@ function getClientToken(c: Context): string {
   return "";
 }
 
-const API_PREFIX = process.env.API_PREFIX || "/api/public/v1";
+const API_PREFIX = getProcessEnv("API_PREFIX") || "/api/public/v1";
 app.get(`${API_PREFIX}/health`, (c) => c.json({
   status: "ok",
   config: {
@@ -65,11 +72,13 @@ app.use(`${API_PREFIX}/*`, async (c, next) => {
   }
 
   const expectedKey = getEnv(c, "CLIENT_API_KEY");
-  if (expectedKey) {
-    const token = getClientToken(c);
-    if (!secureCompare(token, expectedKey)) {
-      return c.json({ error: { message: "Invalid API key", type: "authentication_error" } }, 401);
-    }
+  if (!expectedKey) {
+    return c.json({ error: { message: "Server not configured: missing CLIENT_API_KEY", type: "server_error" } }, 500);
+  }
+
+  const token = getClientToken(c);
+  if (!secureCompare(token, expectedKey)) {
+    return c.json({ error: { message: "Invalid API key", type: "authentication_error" } }, 401);
   }
   await next();
 });
@@ -107,6 +116,10 @@ const MODELS = [
 
 function isClaudeModel(model: string): boolean {
   return typeof model === "string" && model.toLowerCase().startsWith("claude");
+}
+
+function isAnthropicModel(model: string): boolean {
+  return isClaudeModel(model) || model === "MiniMax-M2.7";
 }
 
 function isClaudeThinkingAlias(model: string): boolean {
@@ -166,6 +179,19 @@ function isReasoningModel(model: string): boolean {
   if (typeof model !== "string") return false;
   const m = model.toLowerCase();
   return m.startsWith("gpt-5") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4");
+}
+
+function hasUnsupportedToolUse(body: any): boolean {
+  if (!body || typeof body !== "object") return false;
+  if (body.tools !== undefined || body.tool_choice !== undefined || body.functions !== undefined || body.function_call !== undefined) {
+    return true;
+  }
+  if (!Array.isArray(body.messages)) return false;
+  return body.messages.some((m: any) =>
+    m &&
+    typeof m === "object" &&
+    (m.role === "tool" || m.tool_call_id !== undefined || m.tool_calls !== undefined || m.function_call !== undefined)
+  );
 }
 
 // ========== OpenAI ↔ Anthropic conversion ==========
@@ -504,31 +530,31 @@ function cleanSSEDataLine(line: string): {
 // ========== Routes ==========
 
 /**
- * GET /v1/models
+ * GET {API_PREFIX}/models
  * Returns hardcoded model list. Only includes models tested & confirmed working
  * against the Bloome LLM proxy.
  */
 app.get(`${API_PREFIX}/models`, (c) => {
   // If requested by an Anthropic client
   if (c.req.header("anthropic-version")) {
-    const claudeModels = MODELS.filter(m => isClaudeModel(m.id)).map(m => ({
+    const anthropicModels = MODELS.filter(m => isAnthropicModel(m.id)).map(m => ({
       type: "model",
       id: m.id,
       display_name: m.id,
       created_at: new Date(m.created * 1000).toISOString()
     }));
-    return c.json({ type: "list", data: claudeModels });
+    return c.json({ type: "list", data: anthropicModels });
   }
   // Default OpenAI format
   return c.json({ object: "list", data: MODELS });
 });
 
 /**
- * POST /v1/chat/completions
+ * POST {API_PREFIX}/chat/completions
  * OpenAI-compatible chat completions endpoint.
  *
  * Behavior per model:
- * - `claude-*` → translates to Anthropic Messages, calls /v1/messages, translates back
+ * - Anthropic-compatible models → translates to Anthropic Messages, calls /v1/messages, translates back
  * - `gpt-5.x` / `o1` / `o3` / `o4` → rewrites `max_tokens` → `max_completion_tokens`
  * - others (Kimi etc.) → direct passthrough
  *
@@ -555,8 +581,18 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
 
   const isStream = body.stream === true;
 
-  // ===== Branch 1: Claude → translate to Anthropic =====
-  if (isClaudeModel(body.model)) {
+  const needsProtocolTranslation = isAnthropicModel(body.model) || isGoogleModel(body.model);
+  if (needsProtocolTranslation && hasUnsupportedToolUse(body)) {
+    return c.json({
+      error: {
+        message: "Tool/function calling is not supported for translated Anthropic or Gemini requests",
+        type: "invalid_request_error",
+      },
+    }, 400);
+  }
+
+  // ===== Branch 1: Anthropic-compatible models → translate to Anthropic =====
+  if (isAnthropicModel(body.model)) {
     const thinkingCfg = getClaudeThinkingConfig(body.model);
     const anthropicBody = openaiToAnthropicRequest(body);
 
