@@ -361,20 +361,15 @@ curl -X POST https://xxx.edgespark.app/api/public/v1/chat/completions \
 
 ### 成功时
 
-只返回两句：
-
-1. **部署成功**
-2. 用户可直接复制的配置（分开复制）：
-
 ```
+🎉 Bloome2API 部署成功
+
+Base URL
 https://xxx.edgespark.app/api/public/v1
-```
 
-```
+API Key
 你的CLIENT_API_KEY
 ```
-
-不需要展开解释 verify / health / models / chat 等中间验收项。这些验收项在部署过程中已由 Agent 自行确认，成功后无需向用户汇报细节。
 
 ### 失败时
 
