@@ -115,7 +115,7 @@ GPT 路径兼容上游自动 prompt cache：
 
 不同上游协议的默认输出长度不一样：
 
-- Claude / MiniMax 走 Anthropic 协议，必须传 `max_tokens`；网关默认补 `8192`
+- Claude / MiniMax 走 Anthropic 协议，必须传 `max_tokens`；网关会按模型补默认上限
 - Claude 默认按模型补上限：Opus `32000`，Sonnet / Haiku `64000`
 - MiniMax-M2.7 默认补 `131072`
 - Gemini 走 Vertex 协议，网关默认补 `maxOutputTokens: 65536`，避免吃上游较低默认值
