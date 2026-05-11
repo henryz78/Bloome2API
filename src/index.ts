@@ -97,6 +97,45 @@ function secureCompare(a: string, b: string): boolean {
   return diff === 0;
 }
 
+function getRequestId(c: Context): string {
+  return c.res.headers.get("x-request-id") || "";
+}
+
+function logInternal(event: string, payload: Record<string, any>) {
+  console.error(JSON.stringify({ type: event, ...payload }));
+}
+
+function publicErrorMeta(status: number, type?: string): { status: number; type: string; message: string } {
+  if (type === "authentication_error") return { status, type, message: "Authentication error. Please check logs." };
+  if (type === "invalid_request_error") return { status, type, message: "Invalid request. Please check logs." };
+  if (type === "upstream_timeout") return { status, type, message: "Upstream timeout. Please check logs." };
+  if (type === "service_unavailable") return { status, type, message: "Service temporarily unavailable. Please check logs." };
+  if (type === "server_error") return { status, type, message: "Server error. Please check logs." };
+  return { status, type: "upstream_error", message: "Upstream service error. Please check logs." };
+}
+
+function jsonError(c: Context, status: number, type?: string) {
+  const meta = publicErrorMeta(status, type);
+  return c.json({
+    error: { message: meta.message, type: meta.type },
+    request_id: getRequestId(c),
+  }, meta.status as any);
+}
+
+function sseErrorPayload(c: Context, status: number, type?: string) {
+  const meta = publicErrorMeta(status, type);
+  return JSON.stringify({
+    error: { message: meta.message, type: meta.type },
+    request_id: getRequestId(c),
+  });
+}
+
+function classifyUpstreamStatus(status: number): { status: number; type: string } {
+  if (status === 429) return { status: 503, type: "service_unavailable" };
+  if (status === 408 || status === 504) return { status: 504, type: "upstream_timeout" };
+  return { status: 502, type: "upstream_error" };
+}
+
 function getClientToken(c: Context): string {
   const auth = c.req.header("authorization");
   if (auth) {
@@ -141,6 +180,16 @@ app.options(`${API_PREFIX}/*`, (c) => c.text("", 200, {
   "x-request-id": c.res.headers.get("x-request-id") || generateRequestId(),
 }));
 
+app.onError((err, c) => {
+  logInternal("unhandled_error", {
+    requestId: getRequestId(c),
+    path: c.req.path,
+    method: c.req.method,
+    error: err instanceof Error ? err.message : String(err),
+  });
+  return jsonError(c, 500, "server_error");
+});
+
 app.get(`${API_PREFIX}/health`, async (c) => {
   const upstream = await checkUpstreamHealth(c);
   const status = upstream.ok ? "ok" : "degraded";
@@ -163,12 +212,12 @@ app.use(`${API_PREFIX}/*`, async (c, next) => {
 
   const expectedKey = getEnv(c, "CLIENT_API_KEY");
   if (!expectedKey) {
-    return c.json({ error: { message: "Server not configured: missing CLIENT_API_KEY", type: "server_error" }, request_id: c.res.headers.get("x-request-id") || "" }, 500);
+    return jsonError(c, 500, "server_error");
   }
 
   const token = getClientToken(c);
   if (!secureCompare(token, expectedKey)) {
-    return c.json({ error: { message: "Invalid API key", type: "authentication_error" }, request_id: c.res.headers.get("x-request-id") || "" }, 401);
+    return jsonError(c, 401, "authentication_error");
   }
   await next();
 });
@@ -179,7 +228,7 @@ const BLOOME_LLM_BASE = "https://stream.bloome.im/api/llm/proxy/reson";
 async function checkUpstreamHealth(c: Context): Promise<any> {
   const apiKey = getEnv(c, "BLOOME_API_KEY");
   if (!apiKey) {
-    return { ok: false, error: "missing BLOOME_API_KEY" };
+    return { ok: false, status: 500, latencyMs: 0, model: "kimi-k2.6", hasChoices: false, reason: "server_error" };
   }
 
   const controller = new AbortController();
@@ -204,24 +253,37 @@ async function checkUpstreamHealth(c: Context): Promise<any> {
     const latencyMs = Date.now() - startedAt;
     const data = await resp.json().catch(() => null);
     const hasChoices = Array.isArray(data?.choices) && data.choices.length > 0;
+    const ok = resp.ok && hasChoices;
+    const reason = ok ? null : classifyUpstreamStatus(resp.status).type;
+    if (!ok) {
+      logInternal("health_upstream_error", {
+        requestId: getRequestId(c),
+        upstreamStatus: resp.status,
+        body: data,
+      });
+    }
 
     return {
-      ok: resp.ok && hasChoices,
-      status: resp.status,
+      ok,
+      status: ok ? 200 : 503,
       latencyMs,
       model: "kimi-k2.6",
       hasChoices,
-      upstreamRequestId: resp.headers.get("x-request-id") || null,
-      error: data?.error?.message || null,
+      reason,
     };
   } catch (err: any) {
+    const reason = err?.name === "AbortError" ? "upstream_timeout" : "upstream_error";
+    logInternal("health_upstream_exception", {
+      requestId: getRequestId(c),
+      error: err?.message || String(err),
+    });
     return {
       ok: false,
-      status: null,
+      status: 503,
       latencyMs: Date.now() - startedAt,
       model: "kimi-k2.6",
       hasChoices: false,
-      error: err?.name === "AbortError" ? "upstream timeout" : (err?.message || "upstream request failed"),
+      reason,
     };
   } finally {
     clearTimeout(timeout);
@@ -982,7 +1044,7 @@ function cleanChatCompletion(data: any, publicModel?: string): any {
  * - Preserves `reasoning_content` in delta
  * Returns null to drop the line entirely.
  */
-function cleanSSEDataLine(line: string, publicModel?: string): {
+function cleanSSEDataLine(line: string, publicModel?: string, requestId?: string): {
   line: string | null;
   usage?: any;
 } {
@@ -997,7 +1059,14 @@ function cleanSSEDataLine(line: string, publicModel?: string): {
     return { line };
   }
   if (!data || typeof data !== "object") return { line };
-  if (data.error) return { line };
+  if (data.error) {
+    return {
+      line: "data: " + JSON.stringify({
+        error: { message: "Upstream service error. Please check logs.", type: "upstream_error" },
+        request_id: requestId || "",
+      }),
+    };
+  }
 
   // Drop trailing empty-choices chunk (Bloome quirk)
   if (Array.isArray(data.choices) && data.choices.length === 0) return { line: null };
@@ -1082,11 +1151,11 @@ app.get(`${API_PREFIX}/models`, (c) => {
 app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   const apiKey = getEnv(c, "BLOOME_API_KEY");
   if (!apiKey) {
-    return c.json({ error: { message: "Server not configured: missing BLOOME_API_KEY", type: "server_error" } }, 500);
+    return jsonError(c, 500, "server_error");
   }
   const body = await c.req.json().catch(() => null);
   if (!body) {
-    return c.json({ error: { message: "Invalid JSON body", type: "invalid_request_error" } }, 400);
+    return jsonError(c, 400, "invalid_request_error");
   }
 
   // Reasoning models require max_completion_tokens, not max_tokens
@@ -1101,12 +1170,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
 
   const needsProtocolTranslation = isAnthropicModel(body.model) || isGoogleModel(body.model);
   if (needsProtocolTranslation && hasLegacyFunctionUse(body)) {
-    return c.json({
-      error: {
-        message: "Legacy function_call/functions are not supported for translated Anthropic or Gemini requests; use tools/tool_calls instead",
-        type: "invalid_request_error",
-      },
-    }, 400);
+    return jsonError(c, 400, "invalid_request_error");
   }
   // ===== Branch 1: Anthropic-compatible models → translate to Anthropic =====
   if (isAnthropicModel(body.model)) {
@@ -1124,8 +1188,19 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
         },
         body: JSON.stringify(anthropicBody),
       });
-      const upstream = await resp.json().catch(() => ({ error: { message: "Upstream error" } }));
-      return c.json(upstream.error ? upstream : anthropicToOpenaiResponse(upstream, thinkingCfg.publicModel), resp.status as any);
+      const upstream = await resp.json().catch(() => null);
+      if (!resp.ok || upstream?.error) {
+        logInternal("upstream_error", {
+          requestId: getRequestId(c),
+          branch: "anthropic",
+          model: body.model,
+          upstreamStatus: resp.status,
+          body: upstream,
+        });
+        const mapped = classifyUpstreamStatus(resp.status);
+        return jsonError(c, mapped.status, mapped.type);
+      }
+      return c.json(anthropicToOpenaiResponse(upstream, thinkingCfg.publicModel), resp.status as any);
     }
 
     // Streaming: convert Anthropic SSE → OpenAI SSE chunks
@@ -1141,7 +1216,15 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       });
       if (!resp.ok || !resp.body) {
         const text = await resp.text();
-        await stream.write(`data: ${JSON.stringify({ error: { message: text, type: "upstream_error" } })}\n\n`);
+        logInternal("upstream_error", {
+          requestId: getRequestId(c),
+          branch: "anthropic_stream",
+          model: body.model,
+          upstreamStatus: resp.status,
+          body: text,
+        });
+        const mapped = classifyUpstreamStatus(resp.status);
+        await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type)}\n\n`);
         await stream.close();
         return;
       }
@@ -1246,8 +1329,19 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       const resp = await fetch(`${BLOOME_LLM_BASE}/v1/models/${googleCfg.upstreamModel}:generateContent`, {
         method: "POST", headers: upstreamHeaders, body: JSON.stringify(googleBody)
       });
-      const upstream: any = await resp.json().catch(() => ({ error: { message: "Upstream error" } }));
-      return c.json(upstream.error ? upstream : googleToOpenaiResponse(upstream, googleCfg.publicModel), resp.status as any);
+      const upstream: any = await resp.json().catch(() => null);
+      if (!resp.ok || upstream?.error) {
+        logInternal("upstream_error", {
+          requestId: getRequestId(c),
+          branch: "gemini",
+          model: body.model,
+          upstreamStatus: resp.status,
+          body: upstream,
+        });
+        const mapped = classifyUpstreamStatus(resp.status);
+        return jsonError(c, mapped.status, mapped.type);
+      }
+      return c.json(googleToOpenaiResponse(upstream, googleCfg.publicModel), resp.status as any);
     }
     return streamSSE(c, async (stream) => {
       const resp = await fetch(`${BLOOME_LLM_BASE}/v1/models/${googleCfg.upstreamModel}:streamGenerateContent?alt=sse`, {
@@ -1255,7 +1349,15 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       });
       if (!resp.ok || !resp.body) {
         const text = await resp.text();
-        await stream.write(`data: ${JSON.stringify({ error: { message: text, type: "upstream_error" } })}\n\n`);
+        logInternal("upstream_error", {
+          requestId: getRequestId(c),
+          branch: "gemini_stream",
+          model: body.model,
+          upstreamStatus: resp.status,
+          body: text,
+        });
+        const mapped = classifyUpstreamStatus(resp.status);
+        await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type)}\n\n`);
         await stream.close();
         return;
       }
@@ -1350,7 +1452,18 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify(body),
     });
-    const data = await resp.json().catch(() => ({ error: { message: "Upstream error" } }));
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok || data?.error) {
+      logInternal("upstream_error", {
+        requestId: getRequestId(c),
+        branch: "openai",
+        model: body.model,
+        upstreamStatus: resp.status,
+        body: data,
+      });
+      const mapped = classifyUpstreamStatus(resp.status);
+      return jsonError(c, mapped.status, mapped.type);
+    }
     return c.json(cleanChatCompletion(data, gptThinkingCfg.publicModel), resp.status as any);
   }
 
@@ -1362,7 +1475,15 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
     });
     if (!resp.ok || !resp.body) {
       const text = await resp.text();
-      await stream.write(`data: ${JSON.stringify({ error: { message: text, type: "upstream_error" } })}\n\n`);
+      logInternal("upstream_error", {
+        requestId: getRequestId(c),
+        branch: "openai_stream",
+        model: body.model,
+        upstreamStatus: resp.status,
+        body: text,
+      });
+      const mapped = classifyUpstreamStatus(resp.status);
+      await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type)}\n\n`);
       await stream.close();
       return;
     }
@@ -1380,7 +1501,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           const line = buffer.slice(0, nl);
           buffer = buffer.slice(nl + 1);
           if (line.trim()) {
-            const r = cleanSSEDataLine(line.trim(), gptThinkingCfg.publicModel);
+            const r = cleanSSEDataLine(line.trim(), gptThinkingCfg.publicModel, getRequestId(c));
             if (r.line === "data: [DONE]") sawDone = true;
             if (r.line !== null) await stream.write(r.line + "\n");
           } else {
@@ -1389,7 +1510,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
         }
       }
       if (buffer.trim()) {
-        const r = cleanSSEDataLine(buffer.trim(), gptThinkingCfg.publicModel);
+        const r = cleanSSEDataLine(buffer.trim(), gptThinkingCfg.publicModel, getRequestId(c));
         if (r.line === "data: [DONE]") sawDone = true;
         if (r.line !== null) await stream.write(r.line + "\n");
       }
