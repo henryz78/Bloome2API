@@ -51,14 +51,34 @@ function getAnthropicDefaultMaxTokens(c: Context, model: string): number {
   if (configured) return parsePositiveInt(configured, 8192);
 
   const m = String(model || "").toLowerCase();
-  if (m === "minimax-m2.7") return 131072;
-  if (m.includes("opus")) return 32000;
-  if (m.includes("sonnet") || m.includes("haiku")) return 64000;
+  const exactDefaults: Record<string, number> = {
+    "claude-opus-4-7": 128000,
+    "claude-opus-4-7-thinking": 128000,
+    "claude-opus-4-6": 128000,
+    "claude-opus-4-6-thinking": 128000,
+    "claude-sonnet-4-6": 128000,
+    "claude-sonnet-4-6-thinking": 128000,
+    "claude-haiku-4-5": 64000,
+    "claude-haiku-4-5-thinking": 64000,
+    "minimax-m2.7": 131072,
+  };
+  if (exactDefaults[m] !== undefined) return exactDefaults[m];
   return 8192;
 }
 
-function getGeminiDefaultMaxTokens(c: Context): number {
-  return getDefaultMaxTokens(c, "GEMINI_DEFAULT_MAX_TOKENS", 65536);
+function getGeminiDefaultMaxTokens(c: Context, model: string): number {
+  const configured = getEnv(c, "GEMINI_DEFAULT_MAX_TOKENS");
+  if (configured) return parsePositiveInt(configured, 65536);
+
+  const m = String(model || "").toLowerCase();
+  const exactDefaults: Record<string, number> = {
+    "gemini-3.1-pro": 65536,
+    "gemini-3.1-pro-thinking": 65536,
+    "gemini-3-flash": 65536,
+    "gemini-3-flash-thinking": 65536,
+  };
+  if (exactDefaults[m] !== undefined) return exactDefaults[m];
+  return 65536;
 }
 
 function secureCompare(a: string, b: string): boolean {
@@ -1131,7 +1151,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   // ===== Branch 3: Google (Gemini via Vertex) =====
   if (isGoogleModel(body.model)) {
     const googleCfg = getGoogleThinkingConfig(body.model);
-    const defaultMaxTokens = getGeminiDefaultMaxTokens(c);
+    const defaultMaxTokens = getGeminiDefaultMaxTokens(c, body.model);
     const googleBody = openaiToGoogleRequest(body, defaultMaxTokens);
     const upstreamHeaders: Record<string, string> = {
       "Content-Type": "application/json",

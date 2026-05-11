@@ -83,10 +83,12 @@ GPT 路径兼容上游自动 prompt cache：
 
 ### 3. 关于输出 Token 上限
 
-Claude / MiniMax 走 Anthropic 协议，`max_tokens` 必填。网关在用户未传时按模型补默认上限：
+Claude / MiniMax 走 Anthropic 协议，`max_tokens` 必填。网关在用户未传时按具体 alias 补默认上限：
 
-- Claude Opus：`32000`
-- Claude Sonnet / Haiku：`64000`
+- `claude-opus-4-7` / `claude-opus-4-7-thinking`：`128000`
+- `claude-opus-4-6` / `claude-opus-4-6-thinking`：`128000`
+- `claude-sonnet-4-6` / `claude-sonnet-4-6-thinking`：`128000`
+- `claude-haiku-4-5` / `claude-haiku-4-5-thinking`：`64000`
 - MiniMax-M2.7：`131072`
 
 可用 `ANTHROPIC_DEFAULT_MAX_TOKENS` 覆盖 Anthropic 兼容分支的默认值。
