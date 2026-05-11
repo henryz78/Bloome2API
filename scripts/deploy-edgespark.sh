@@ -70,6 +70,9 @@ fi
 if [[ -n "${GEMINI_DEFAULT_MAX_TOKENS:-}" ]]; then
   runtime_vars+=("GEMINI_DEFAULT_MAX_TOKENS=${GEMINI_DEFAULT_MAX_TOKENS}")
 fi
+if [[ -n "${BLOOME2API_DEV_MODE:-}" ]]; then
+  runtime_vars+=("BLOOME2API_DEV_MODE=${BLOOME2API_DEV_MODE}")
+fi
 (cd "$PROJECT_DIR" && edgespark var set "${runtime_vars[@]}")
 
 echo "==> Syncing gateway code into EdgeSpark scaffold"
@@ -119,7 +122,7 @@ import sys
 p = Path(sys.argv[1])
 text = p.read_text()
 old = 'export type VarKey = never;'
-new = 'export type VarKey =\n  | "BLOOME_API_KEY"\n  | "CLIENT_API_KEY"\n  | "ANTHROPIC_DEFAULT_MAX_TOKENS"\n  | "GEMINI_DEFAULT_MAX_TOKENS";'
+new = 'export type VarKey =\n  | "BLOOME_API_KEY"\n  | "CLIENT_API_KEY"\n  | "ANTHROPIC_DEFAULT_MAX_TOKENS"\n  | "GEMINI_DEFAULT_MAX_TOKENS"\n  | "BLOOME2API_DEV_MODE";'
 if old in text:
     text = text.replace(old, new)
 else:

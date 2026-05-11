@@ -89,7 +89,22 @@ export CLIENT_API_KEY="<用户给的客户端密码>"
 
 ---
 
-## 4. 常见报错
+## 4. 错误日志模式
+
+默认模式不向客户端暴露详细上游错误，只返回统一错误标志和 `request_id`，详细内容看平台日志。
+
+需要排查时可以临时开启开发模式：
+
+```bash
+export BLOOME2API_DEV_MODE=true
+./scripts/deploy-edgespark.sh <alias>
+```
+
+开发模式会让 API 响应携带 `error.detail`。排查结束后建议取消该变量并重新部署。
+
+---
+
+## 5. 常见报错
 
 ### `Model alias not found`
 
@@ -117,7 +132,7 @@ export CLIENT_API_KEY="<用户给的客户端密码>"
 
 ---
 
-## 5. Scaffold 位置
+## 6. Scaffold 位置
 
 `scripts/deploy-edgespark.sh` 自动识别：
 
@@ -132,7 +147,7 @@ export EDGESPARK_PROJECT_DIR="/absolute/path/to/edgespark/<alias>"
 
 ---
 
-## 6. 热更新
+## 7. 热更新
 
 只改源码、模型、请求转换、SSE、reasoning、工具调用或运行时变量时，不需要重新 create。
 

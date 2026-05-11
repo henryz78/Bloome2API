@@ -153,4 +153,8 @@ API Key
 <CLIENT_API_KEY>
 ```
 
+当前是默认模式：对外只返回统一错误标志和 `request_id`，详细错误请看平台日志。
+
+如果需要开启开发模式，请告诉我；开发模式会设置 `BLOOME2API_DEV_MODE=true`，接口响应会显示详细错误日志，排查结束后建议关闭。
+
 失败时说明卡在哪一步：本地 smoke、create、pull、deploy、verify、health、models 或 chat。

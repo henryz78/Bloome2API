@@ -17,7 +17,8 @@ type RuntimeKey =
   | "BLOOME_API_KEY"
   | "CLIENT_API_KEY"
   | "ANTHROPIC_DEFAULT_MAX_TOKENS"
-  | "GEMINI_DEFAULT_MAX_TOKENS";
+  | "GEMINI_DEFAULT_MAX_TOKENS"
+  | "BLOOME2API_DEV_MODE";
 
 function getEnv(c: Context, key: RuntimeKey): string {
   try {
@@ -105,6 +106,11 @@ function logInternal(event: string, payload: Record<string, any>) {
   console.error(JSON.stringify({ type: event, ...payload }));
 }
 
+function isDeveloperMode(c: Context): boolean {
+  const value = getEnv(c, "BLOOME2API_DEV_MODE").toLowerCase();
+  return ["1", "true", "yes", "on", "dev", "development"].includes(value);
+}
+
 function publicErrorMeta(status: number, type?: string): { status: number; type: string; message: string } {
   if (type === "authentication_error") return { status, type, message: "Authentication error. Please check logs." };
   if (type === "invalid_request_error") return { status, type, message: "Invalid request. Please check logs." };
@@ -114,18 +120,22 @@ function publicErrorMeta(status: number, type?: string): { status: number; type:
   return { status, type: "upstream_error", message: "Upstream service error. Please check logs." };
 }
 
-function jsonError(c: Context, status: number, type?: string) {
+function jsonError(c: Context, status: number, type?: string, detail?: any) {
   const meta = publicErrorMeta(status, type);
+  const error: any = { message: meta.message, type: meta.type };
+  if (detail !== undefined && isDeveloperMode(c)) error.detail = detail;
   return c.json({
-    error: { message: meta.message, type: meta.type },
+    error,
     request_id: getRequestId(c),
   }, meta.status as any);
 }
 
-function sseErrorPayload(c: Context, status: number, type?: string) {
+function sseErrorPayload(c: Context, status: number, type?: string, detail?: any) {
   const meta = publicErrorMeta(status, type);
+  const error: any = { message: meta.message, type: meta.type };
+  if (detail !== undefined && isDeveloperMode(c)) error.detail = detail;
   return JSON.stringify({
-    error: { message: meta.message, type: meta.type },
+    error,
     request_id: getRequestId(c),
   });
 }
@@ -1044,7 +1054,7 @@ function cleanChatCompletion(data: any, publicModel?: string): any {
  * - Preserves `reasoning_content` in delta
  * Returns null to drop the line entirely.
  */
-function cleanSSEDataLine(line: string, publicModel?: string, requestId?: string): {
+function cleanSSEDataLine(line: string, publicModel?: string, requestId?: string, exposeErrorDetails = false): {
   line: string | null;
   usage?: any;
 } {
@@ -1060,9 +1070,11 @@ function cleanSSEDataLine(line: string, publicModel?: string, requestId?: string
   }
   if (!data || typeof data !== "object") return { line };
   if (data.error) {
+    const error: any = { message: "Upstream service error. Please check logs.", type: "upstream_error" };
+    if (exposeErrorDetails) error.detail = data.error;
     return {
       line: "data: " + JSON.stringify({
-        error: { message: "Upstream service error. Please check logs.", type: "upstream_error" },
+        error,
         request_id: requestId || "",
       }),
     };
@@ -1198,7 +1210,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           body: upstream,
         });
         const mapped = classifyUpstreamStatus(resp.status);
-        return jsonError(c, mapped.status, mapped.type);
+        return jsonError(c, mapped.status, mapped.type, upstream);
       }
       return c.json(anthropicToOpenaiResponse(upstream, thinkingCfg.publicModel), resp.status as any);
     }
@@ -1224,7 +1236,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           body: text,
         });
         const mapped = classifyUpstreamStatus(resp.status);
-        await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type)}\n\n`);
+        await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type, text)}\n\n`);
         await stream.close();
         return;
       }
@@ -1339,7 +1351,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           body: upstream,
         });
         const mapped = classifyUpstreamStatus(resp.status);
-        return jsonError(c, mapped.status, mapped.type);
+        return jsonError(c, mapped.status, mapped.type, upstream);
       }
       return c.json(googleToOpenaiResponse(upstream, googleCfg.publicModel), resp.status as any);
     }
@@ -1357,7 +1369,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           body: text,
         });
         const mapped = classifyUpstreamStatus(resp.status);
-        await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type)}\n\n`);
+        await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type, text)}\n\n`);
         await stream.close();
         return;
       }
@@ -1462,7 +1474,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
         body: data,
       });
       const mapped = classifyUpstreamStatus(resp.status);
-      return jsonError(c, mapped.status, mapped.type);
+      return jsonError(c, mapped.status, mapped.type, data);
     }
     return c.json(cleanChatCompletion(data, gptThinkingCfg.publicModel), resp.status as any);
   }
@@ -1483,7 +1495,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
         body: text,
       });
       const mapped = classifyUpstreamStatus(resp.status);
-      await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type)}\n\n`);
+      await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type, text)}\n\n`);
       await stream.close();
       return;
     }
@@ -1501,7 +1513,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           const line = buffer.slice(0, nl);
           buffer = buffer.slice(nl + 1);
           if (line.trim()) {
-            const r = cleanSSEDataLine(line.trim(), gptThinkingCfg.publicModel, getRequestId(c));
+            const r = cleanSSEDataLine(line.trim(), gptThinkingCfg.publicModel, getRequestId(c), isDeveloperMode(c));
             if (r.line === "data: [DONE]") sawDone = true;
             if (r.line !== null) await stream.write(r.line + "\n");
           } else {
@@ -1510,7 +1522,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
         }
       }
       if (buffer.trim()) {
-        const r = cleanSSEDataLine(buffer.trim(), gptThinkingCfg.publicModel, getRequestId(c));
+        const r = cleanSSEDataLine(buffer.trim(), gptThinkingCfg.publicModel, getRequestId(c), isDeveloperMode(c));
         if (r.line === "data: [DONE]") sawDone = true;
         if (r.line !== null) await stream.write(r.line + "\n");
       }
