@@ -3,6 +3,10 @@ import { streamSSE } from "hono/streaming";
 
 const app = new Hono();
 
+function generateRequestId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 // ========== Configuration ==========
 
 import { env } from "hono/adapter";
@@ -105,34 +109,124 @@ function getClientToken(c: Context): string {
 }
 
 const API_PREFIX = getProcessEnv("API_PREFIX") || "/api/public/v1";
-app.get(`${API_PREFIX}/health`, (c) => c.json({
-  status: "ok",
-  config: {
-    bloomeApiKey: !!getEnv(c, "BLOOME_API_KEY"),
-    clientApiKey: !!getEnv(c, "CLIENT_API_KEY"),
-  }
-})); // EdgeSpark requires /api/*
 
 app.use(`${API_PREFIX}/*`, async (c, next) => {
-  if (c.req.path === `${API_PREFIX}/health`) {
+  const requestId = generateRequestId();
+  const start = Date.now();
+
+  c.header("x-request-id", requestId);
+  c.header("Access-Control-Allow-Origin", "*");
+  c.header("Access-Control-Allow-Headers", "Authorization, Content-Type, x-api-key");
+  c.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  c.header("Access-Control-Expose-Headers", "x-request-id");
+
+  await next();
+
+  const duration = Date.now() - start;
+  console.log(JSON.stringify({
+    type: "access",
+    requestId,
+    method: c.req.method,
+    path: c.req.path,
+    status: c.res.status,
+    durationMs: duration,
+  }));
+});
+
+app.options(`${API_PREFIX}/*`, (c) => c.text("", 200, {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type, x-api-key",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Expose-Headers": "x-request-id",
+  "x-request-id": c.res.headers.get("x-request-id") || generateRequestId(),
+}));
+
+app.get(`${API_PREFIX}/health`, async (c) => {
+  const upstream = await checkUpstreamHealth(c);
+  const status = upstream.ok ? "ok" : "degraded";
+  return c.json({
+    status,
+    config: {
+      bloomeApiKey: !!getEnv(c, "BLOOME_API_KEY"),
+      clientApiKey: !!getEnv(c, "CLIENT_API_KEY"),
+    },
+    upstream,
+    requestId: c.res.headers.get("x-request-id") || "",
+  }, upstream.ok ? 200 : 503);
+}); // EdgeSpark requires /api/*
+
+app.use(`${API_PREFIX}/*`, async (c, next) => {
+  if (c.req.method === "OPTIONS" || c.req.path === `${API_PREFIX}/health`) {
     await next();
     return;
   }
 
   const expectedKey = getEnv(c, "CLIENT_API_KEY");
   if (!expectedKey) {
-    return c.json({ error: { message: "Server not configured: missing CLIENT_API_KEY", type: "server_error" } }, 500);
+    return c.json({ error: { message: "Server not configured: missing CLIENT_API_KEY", type: "server_error" }, request_id: c.res.headers.get("x-request-id") || "" }, 500);
   }
 
   const token = getClientToken(c);
   if (!secureCompare(token, expectedKey)) {
-    return c.json({ error: { message: "Invalid API key", type: "authentication_error" } }, 401);
+    return c.json({ error: { message: "Invalid API key", type: "authentication_error" }, request_id: c.res.headers.get("x-request-id") || "" }, 401);
   }
   await next();
 });
 
 
 const BLOOME_LLM_BASE = "https://stream.bloome.im/api/llm/proxy/reson";
+
+async function checkUpstreamHealth(c: Context): Promise<any> {
+  const apiKey = getEnv(c, "BLOOME_API_KEY");
+  if (!apiKey) {
+    return { ok: false, error: "missing BLOOME_API_KEY" };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  const startedAt = Date.now();
+
+  try {
+    const resp = await fetch(`${BLOOME_LLM_BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "kimi-k2.6",
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 1,
+      }),
+      signal: controller.signal,
+    });
+
+    const latencyMs = Date.now() - startedAt;
+    const data = await resp.json().catch(() => null);
+    const hasChoices = Array.isArray(data?.choices) && data.choices.length > 0;
+
+    return {
+      ok: resp.ok && hasChoices,
+      status: resp.status,
+      latencyMs,
+      model: "kimi-k2.6",
+      hasChoices,
+      upstreamRequestId: resp.headers.get("x-request-id") || null,
+      error: data?.error?.message || null,
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      status: null,
+      latencyMs: Date.now() - startedAt,
+      model: "kimi-k2.6",
+      hasChoices: false,
+      error: err?.name === "AbortError" ? "upstream timeout" : (err?.message || "upstream request failed"),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 const MODELS = [
   { id: "claude-opus-4-7", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-7", parent: null },
@@ -1003,7 +1097,8 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
     }
   }
 
-  const isStream = body.stream === true;
+  const rawStream = body.stream;
+  const isStream = rawStream === true || rawStream === 1 || (typeof rawStream === "string" && rawStream.toLowerCase() === "true");
 
   const needsProtocolTranslation = isAnthropicModel(body.model) || isGoogleModel(body.model);
   if (needsProtocolTranslation && hasLegacyFunctionUse(body)) {
@@ -1229,6 +1324,45 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
                 }
               } catch (e) {}
             }
+          }
+        }
+        if (buffer.trim()) {
+          const jsonStr = buffer.trim().startsWith("data:") ? buffer.trim().slice(5).trim() : buffer.trim();
+          if (jsonStr) {
+            try {
+              const d = JSON.parse(jsonStr);
+              const candidate = d.candidates?.[0];
+              const parts = candidate?.content?.parts || [];
+              const finishReason = candidate?.finishReason;
+              chunkId = d.responseId || chunkId;
+              if (!roleSent) { await writeChunk({ role: "assistant", content: "" }); roleSent = true; }
+              for (const part of parts) {
+                if (part?.functionCall?.name) {
+                  const name = part.functionCall.name;
+                  let toolIndex = googleToolCallIndexes.get(name);
+                  if (toolIndex === undefined) {
+                    toolIndex = nextToolIndex++;
+                    googleToolCallIndexes.set(name, toolIndex);
+                  }
+                  sawToolCall = true;
+                  await writeChunk(openAIToolCallDelta(
+                    toolIndex,
+                    `call_${toolIndex}`,
+                    name,
+                    stringifyToolArguments(part.functionCall.args),
+                  ));
+                  continue;
+                }
+                const textDelta = part?.text || "";
+                if (!textDelta) continue;
+                if (part?.thought === true) await writeChunk({ reasoning_content: textDelta });
+                else await writeChunk({ content: textDelta });
+              }
+              if (finishReason) {
+                const usage = d.usageMetadata ? { prompt_tokens: d.usageMetadata.promptTokenCount || 0, completion_tokens: d.usageMetadata.candidatesTokenCount || 0, total_tokens: d.usageMetadata.totalTokenCount || 0 } : null;
+                await writeChunk({}, sawToolCall ? "tool_calls" : (mapGoogleFinishReason(finishReason) || "stop"), usage);
+              }
+            } catch (e) {}
           }
         }
         await stream.write("data: [DONE]\n\n");
