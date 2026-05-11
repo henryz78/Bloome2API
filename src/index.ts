@@ -1097,8 +1097,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
     }
   }
 
-  const rawStream = body.stream;
-  const isStream = rawStream === true || rawStream === 1 || (typeof rawStream === "string" && rawStream.toLowerCase() === "true");
+  const isStream = body.stream === true;
 
   const needsProtocolTranslation = isAnthropicModel(body.model) || isGoogleModel(body.model);
   if (needsProtocolTranslation && hasLegacyFunctionUse(body)) {
@@ -1324,45 +1323,6 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
                 }
               } catch (e) {}
             }
-          }
-        }
-        if (buffer.trim()) {
-          const jsonStr = buffer.trim().startsWith("data:") ? buffer.trim().slice(5).trim() : buffer.trim();
-          if (jsonStr) {
-            try {
-              const d = JSON.parse(jsonStr);
-              const candidate = d.candidates?.[0];
-              const parts = candidate?.content?.parts || [];
-              const finishReason = candidate?.finishReason;
-              chunkId = d.responseId || chunkId;
-              if (!roleSent) { await writeChunk({ role: "assistant", content: "" }); roleSent = true; }
-              for (const part of parts) {
-                if (part?.functionCall?.name) {
-                  const name = part.functionCall.name;
-                  let toolIndex = googleToolCallIndexes.get(name);
-                  if (toolIndex === undefined) {
-                    toolIndex = nextToolIndex++;
-                    googleToolCallIndexes.set(name, toolIndex);
-                  }
-                  sawToolCall = true;
-                  await writeChunk(openAIToolCallDelta(
-                    toolIndex,
-                    `call_${toolIndex}`,
-                    name,
-                    stringifyToolArguments(part.functionCall.args),
-                  ));
-                  continue;
-                }
-                const textDelta = part?.text || "";
-                if (!textDelta) continue;
-                if (part?.thought === true) await writeChunk({ reasoning_content: textDelta });
-                else await writeChunk({ content: textDelta });
-              }
-              if (finishReason) {
-                const usage = d.usageMetadata ? { prompt_tokens: d.usageMetadata.promptTokenCount || 0, completion_tokens: d.usageMetadata.candidatesTokenCount || 0, total_tokens: d.usageMetadata.totalTokenCount || 0 } : null;
-                await writeChunk({}, sawToolCall ? "tool_calls" : (mapGoogleFinishReason(finishReason) || "stop"), usage);
-              }
-            } catch (e) {}
           }
         }
         await stream.write("data: [DONE]\n\n");
