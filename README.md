@@ -116,7 +116,9 @@ GPT 路径兼容上游自动 prompt cache：
 不同上游协议的默认输出长度不一样：
 
 - Claude / MiniMax 走 Anthropic 协议，必须传 `max_tokens`；网关默认补 `8192`
-- Gemini 走 Vertex 协议，网关默认补 `maxOutputTokens: 8192`，避免吃上游较低默认值
+- Claude 默认按模型补上限：Opus `32000`，Sonnet / Haiku `64000`
+- MiniMax-M2.7 默认补 `131072`
+- Gemini 走 Vertex 协议，网关默认补 `maxOutputTokens: 65536`，避免吃上游较低默认值
 - Kimi / GPT / GLM / DeepSeek / Mimo 走 OpenAI 原生分支，用户不传时网关不主动限制
 
 用户显式传 `max_tokens` 或 `max_completion_tokens` 时，永远优先使用用户传入的值。
@@ -124,7 +126,7 @@ GPT 路径兼容上游自动 prompt cache：
 如果部署时要调默认值：
 
 - `ANTHROPIC_DEFAULT_MAX_TOKENS=16384`
-- `GEMINI_DEFAULT_MAX_TOKENS=16384`
+- `GEMINI_DEFAULT_MAX_TOKENS=32768`
 
 最终能否输出到这个长度仍取决于 Bloome 上游和具体模型 alias 是否允许。
 

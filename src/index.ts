@@ -46,6 +46,21 @@ function getDefaultMaxTokens(c: Context, key: RuntimeKey, fallback: number): num
   return parsePositiveInt(getEnv(c, key), fallback);
 }
 
+function getAnthropicDefaultMaxTokens(c: Context, model: string): number {
+  const configured = getEnv(c, "ANTHROPIC_DEFAULT_MAX_TOKENS");
+  if (configured) return parsePositiveInt(configured, 8192);
+
+  const m = String(model || "").toLowerCase();
+  if (m === "minimax-m2.7") return 131072;
+  if (m.includes("opus")) return 32000;
+  if (m.includes("sonnet") || m.includes("haiku")) return 64000;
+  return 8192;
+}
+
+function getGeminiDefaultMaxTokens(c: Context): number {
+  return getDefaultMaxTokens(c, "GEMINI_DEFAULT_MAX_TOKENS", 65536);
+}
+
 function secureCompare(a: string, b: string): boolean {
   const enc = new TextEncoder();
   const aBytes = enc.encode(a);
@@ -991,7 +1006,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   // ===== Branch 1: Anthropic-compatible models → translate to Anthropic =====
   if (isAnthropicModel(body.model)) {
     const thinkingCfg = getClaudeThinkingConfig(body.model);
-    const defaultMaxTokens = getDefaultMaxTokens(c, "ANTHROPIC_DEFAULT_MAX_TOKENS", 8192);
+    const defaultMaxTokens = getAnthropicDefaultMaxTokens(c, body.model);
     const anthropicBody = openaiToAnthropicRequest(body, defaultMaxTokens);
 
     if (!isStream) {
@@ -1116,7 +1131,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   // ===== Branch 3: Google (Gemini via Vertex) =====
   if (isGoogleModel(body.model)) {
     const googleCfg = getGoogleThinkingConfig(body.model);
-    const defaultMaxTokens = getDefaultMaxTokens(c, "GEMINI_DEFAULT_MAX_TOKENS", 8192);
+    const defaultMaxTokens = getGeminiDefaultMaxTokens(c);
     const googleBody = openaiToGoogleRequest(body, defaultMaxTokens);
     const upstreamHeaders: Record<string, string> = {
       "Content-Type": "application/json",
