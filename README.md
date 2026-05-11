@@ -80,23 +80,25 @@ Bloome2API/
 
 Claude / MiniMax / Gemini 已支持 OpenAI 风格的 `tools` / `tool_calls`，包括普通响应和流式响应。旧版 `functions` / `function_call` 不支持，请使用新版 `tools`。
 
-### 2. Prompt Cache 支持
+### 2. Prompt Cache 兼容
 
-Claude / MiniMax 会透传 Anthropic 风格的 `cache_control`：
+网关已兼容 prompt cache 的请求参数和 usage 字段，但是否真正写入/命中缓存，取决于最终上游是否支持并透传这些能力。当前 Bloome 上游实测会正常响应，但缓存统计仍为 0，因此不要把这项能力理解成当前一定能省 token。
+
+Claude / MiniMax 路径会透传 Anthropic 风格的 `cache_control`：
 
 - 客户端在 `tools`、`messages[].content[]` 或 `system` 消息上显式传 `cache_control` 时，代理会原样转成 Anthropic block
 - 客户端传 `ttl` 时不改写，例如 `{ "type": "ephemeral", "ttl": "5m" }`
 - 如果请求没有显式 `cache_control`，代理会在静态前缀末尾自动补一个 `5m` 断点，优先系统提示，其次工具定义
 - 如果不想自动补断点，请在请求体里传 `prompt_cache: false`
 
-GPT 走上游自动 prompt cache：
+GPT 路径兼容上游自动 prompt cache：
 
 - 代理不会缓存回答
 - 代理会保留上游返回的 `usage.prompt_tokens_details.cached_tokens`
 - 对 `gpt-*` 请求，如果有 system / tools / response_format 且客户端没有传 `prompt_cache_key`，代理会自动生成一个稳定的 `prompt_cache_key`，帮助上游提高同类前缀的命中率
 - 如果不想自动生成 key，同样传 `prompt_cache: false`
 
-这个是 prompt caching，不是完整回答缓存；不会把某次回答直接复用给下一次请求。
+这个是 prompt cache 兼容层，不是完整回答缓存；不会把某次回答直接复用给下一次请求。上游以后开始支持时，这些字段可以直接生效。
 
 ### 3. 真正的源码源头
 永远是：
