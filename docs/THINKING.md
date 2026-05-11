@@ -276,7 +276,7 @@ thinkingConfig: {
 
 ### Gemini 流式
 
-后续待补实测。
+已确认当前 Bloome 上游的 Gemini 路径只提供非流式行为。代理侧不要为了 Gemini 额外堆流式 parser 兼容逻辑；如果客户端强制 `stream: true`，也只能按上游实际返回结果处理，不能保证真正逐块输出。
 
 ### OpenAI / DeepSeek / Kimi / GLM 流式
 

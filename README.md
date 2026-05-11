@@ -78,7 +78,7 @@ Bloome2API/
 
 ### 1. 工具调用支持
 
-Claude / MiniMax / Gemini 已支持 OpenAI 风格的 `tools` / `tool_calls`，包括普通响应和流式响应。旧版 `functions` / `function_call` 不支持，请使用新版 `tools`。
+Claude / MiniMax 已支持 OpenAI 风格的 `tools` / `tool_calls`，包括普通响应和流式响应。Gemini 在 Bloome 上游当前只支持非流式响应；即使客户端传 `stream: true`，也不要预期真正逐块输出。旧版 `functions` / `function_call` 不支持，请使用新版 `tools`。
 
 ### 2. Prompt Cache 兼容
 
