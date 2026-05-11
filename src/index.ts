@@ -553,12 +553,12 @@ function mapAnthropicStopReason(stop: string | null | undefined): string | null 
 }
 
 function normalizeOpenAIUsage(usage: any): any {
-  const promptTokens = usage.prompt_tokens || usage.input_tokens || 0;
-  const completionTokens = usage.completion_tokens || usage.output_tokens || 0;
+  const promptTokens = usage.prompt_tokens ?? usage.input_tokens ?? 0;
+  const completionTokens = usage.completion_tokens ?? usage.output_tokens ?? 0;
   const cleaned: any = {
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
-    total_tokens: usage.total_tokens || (promptTokens + completionTokens),
+    total_tokens: usage.total_tokens ?? (promptTokens + completionTokens),
   };
   if (usage.prompt_tokens_details && typeof usage.prompt_tokens_details === "object") {
     cleaned.prompt_tokens_details = { ...usage.prompt_tokens_details };
@@ -572,6 +572,25 @@ function normalizeOpenAIUsage(usage: any): any {
     if (usage[key] !== undefined) cleaned[key] = usage[key];
   }
   return cleaned;
+}
+
+function mergeOpenAIUsage(base: any, next: any): any {
+  const normalizedNext = normalizeOpenAIUsage(next);
+  if (!base) return normalizedNext;
+  const merged: any = { ...base, ...normalizedNext };
+  if (base.prompt_tokens_details || next.prompt_tokens_details || next.cached_tokens !== undefined) {
+    merged.prompt_tokens_details = {
+      ...(base.prompt_tokens_details || {}),
+      ...(normalizedNext.prompt_tokens_details || {}),
+    };
+  }
+  if (base.completion_tokens_details || next.completion_tokens_details) {
+    merged.completion_tokens_details = {
+      ...(base.completion_tokens_details || {}),
+      ...(normalizedNext.completion_tokens_details || {}),
+    };
+  }
+  return merged;
 }
 
 /**
@@ -868,7 +887,7 @@ function cleanSSEDataLine(line: string, publicModel?: string): {
       };
       // Hoist nested usage from choice to top-level (Bloome quirk)
       if (choice.usage && typeof choice.usage === "object") {
-        cleaned.usage = normalizeOpenAIUsage(choice.usage);
+        cleaned.usage = mergeOpenAIUsage(cleaned.usage, choice.usage);
         extractedUsage = cleaned.usage;
       }
       return out;
@@ -878,7 +897,7 @@ function cleanSSEDataLine(line: string, publicModel?: string): {
   }
 
   if (data.usage && typeof data.usage === "object") {
-    cleaned.usage = normalizeOpenAIUsage(data.usage);
+    cleaned.usage = mergeOpenAIUsage(cleaned.usage, data.usage);
     extractedUsage = cleaned.usage;
   }
 
