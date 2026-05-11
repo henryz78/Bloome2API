@@ -81,7 +81,17 @@ GPT 路径兼容上游自动 prompt cache：
 
 这只影响 prompt cache 参数兼容和统计字段保留，不是响应缓存。
 
-### 3. 关于 MiniMax M2.7
+### 3. 关于输出 Token 上限
+
+Claude / MiniMax 走 Anthropic 协议，`max_tokens` 必填。网关在用户未传时默认补 `8192`，可用 `ANTHROPIC_DEFAULT_MAX_TOKENS` 覆盖。
+
+Gemini 走 Vertex 协议。网关在用户未传时默认补 `generationConfig.maxOutputTokens = 8192`，可用 `GEMINI_DEFAULT_MAX_TOKENS` 覆盖。
+
+Kimi / GPT / GLM / DeepSeek / Mimo 走 OpenAI 原生分支，用户未传时网关不主动补输出上限。
+
+用户显式传入 `max_tokens` 或 `max_completion_tokens` 时，优先使用用户传入值。最终可输出长度仍取决于 Bloome 上游和具体模型 alias。
+
+### 4. 关于 MiniMax M2.7
 
 这个模型比较特殊：
 
@@ -97,7 +107,7 @@ GPT 路径兼容上游自动 prompt cache：
 - `minimax`
 - `m2.7`
 
-### 4. 关于 DeepSeek V3.2
+### 5. 关于 DeepSeek V3.2
 
 客户端展示常写作 **DeepSeek V3.2**，但代理里应写：
 

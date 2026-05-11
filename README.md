@@ -111,7 +111,24 @@ GPT 路径兼容上游自动 prompt cache：
 
 后者只是部署时生成的运行副本。
 
-### 4. 如果旧 alias 坏了
+### 4. 输出 token 上限
+
+不同上游协议的默认输出长度不一样：
+
+- Claude / MiniMax 走 Anthropic 协议，必须传 `max_tokens`；网关默认补 `8192`
+- Gemini 走 Vertex 协议，网关默认补 `maxOutputTokens: 8192`，避免吃上游较低默认值
+- Kimi / GPT / GLM / DeepSeek / Mimo 走 OpenAI 原生分支，用户不传时网关不主动限制
+
+用户显式传 `max_tokens` 或 `max_completion_tokens` 时，永远优先使用用户传入的值。
+
+如果部署时要调默认值：
+
+- `ANTHROPIC_DEFAULT_MAX_TOKENS=16384`
+- `GEMINI_DEFAULT_MAX_TOKENS=16384`
+
+最终能否输出到这个长度仍取决于 Bloome 上游和具体模型 alias 是否允许。
+
+### 5. 如果旧 alias 坏了
 只要出现：
 
 - `verify 404`
@@ -120,5 +137,5 @@ GPT 路径兼容上游自动 prompt cache：
 
 直接换 fresh alias，不要在旧 alias 上硬修。
 
-### 5. 如果要查模型和 thinking 细节
+### 6. 如果要查模型和 thinking 细节
 去 `docs/` 看。

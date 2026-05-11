@@ -60,9 +60,17 @@ if [[ ! -f "$TARGET_RUNTIME" ]]; then
 fi
 
 echo "==> Syncing runtime vars"
-(cd "$PROJECT_DIR" && edgespark var set \
-  "BLOOME_API_KEY=${BLOOME_API_KEY}" \
-  "CLIENT_API_KEY=${CLIENT_API_KEY}")
+runtime_vars=(
+  "BLOOME_API_KEY=${BLOOME_API_KEY}"
+  "CLIENT_API_KEY=${CLIENT_API_KEY}"
+)
+if [[ -n "${ANTHROPIC_DEFAULT_MAX_TOKENS:-}" ]]; then
+  runtime_vars+=("ANTHROPIC_DEFAULT_MAX_TOKENS=${ANTHROPIC_DEFAULT_MAX_TOKENS}")
+fi
+if [[ -n "${GEMINI_DEFAULT_MAX_TOKENS:-}" ]]; then
+  runtime_vars+=("GEMINI_DEFAULT_MAX_TOKENS=${GEMINI_DEFAULT_MAX_TOKENS}")
+fi
+(cd "$PROJECT_DIR" && edgespark var set "${runtime_vars[@]}")
 
 echo "==> Syncing gateway code into EdgeSpark scaffold"
 cp "$SOURCE_SRC" "$TARGET_SRC"
@@ -111,7 +119,7 @@ import sys
 p = Path(sys.argv[1])
 text = p.read_text()
 old = 'export type VarKey = never;'
-new = 'export type VarKey =\n  | "BLOOME_API_KEY"\n  | "CLIENT_API_KEY";'
+new = 'export type VarKey =\n  | "BLOOME_API_KEY"\n  | "CLIENT_API_KEY"\n  | "ANTHROPIC_DEFAULT_MAX_TOKENS"\n  | "GEMINI_DEFAULT_MAX_TOKENS";'
 if old in text:
     text = text.replace(old, new)
 else:

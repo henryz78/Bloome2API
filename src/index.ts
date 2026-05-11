@@ -9,7 +9,11 @@ import { env } from "hono/adapter";
 import type { Context } from "hono";
 
 
-type RuntimeKey = "BLOOME_API_KEY" | "CLIENT_API_KEY";
+type RuntimeKey =
+  | "BLOOME_API_KEY"
+  | "CLIENT_API_KEY"
+  | "ANTHROPIC_DEFAULT_MAX_TOKENS"
+  | "GEMINI_DEFAULT_MAX_TOKENS";
 
 function getEnv(c: Context, key: RuntimeKey): string {
   try {
@@ -31,6 +35,15 @@ function getProcessEnv(key: string): string {
     return process.env[key] as string;
   }
   return "";
+}
+
+function parsePositiveInt(value: string, fallback: number): number {
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function getDefaultMaxTokens(c: Context, key: RuntimeKey, fallback: number): number {
+  return parsePositiveInt(getEnv(c, key), fallback);
 }
 
 function secureCompare(a: string, b: string): boolean {
@@ -418,12 +431,12 @@ function attachCacheControlToLastTextBlock(blocks: any[], cacheControl: any): an
  * - Maps `max_tokens` (Anthropic requires it)
  * - Preserves Anthropic `cache_control` on text/tool blocks
  */
-function openaiToAnthropicRequest(body: any): any {
+function openaiToAnthropicRequest(body: any, defaultMaxTokens: number): any {
   const thinkingCfg = getClaudeThinkingConfig(body.model || "");
   const autoPromptCache = body.prompt_cache !== false && body.cache !== false;
   const out: any = {
     model: thinkingCfg.upstreamModel,
-    max_tokens: body.max_tokens ?? body.max_completion_tokens ?? 4096,
+    max_tokens: body.max_tokens ?? body.max_completion_tokens ?? defaultMaxTokens,
     messages: [],
   };
   if (body.stream) out.stream = true;
@@ -655,7 +668,7 @@ function anthropicToOpenaiResponse(data: any, publicModel?: string): any {
 
 // ========== Google Gemini (Vertex) conversion ==========
 
-function openaiToGoogleRequest(body: any): any {
+function openaiToGoogleRequest(body: any, defaultMaxTokens: number): any {
   const googleCfg = getGoogleThinkingConfig(body.model || "");
   const out: any = { contents: [], generationConfig: {} };
   const systemParts: any[] = [];
@@ -665,9 +678,7 @@ function openaiToGoogleRequest(body: any): any {
   }
   if (body.temperature !== undefined) out.generationConfig.temperature = body.temperature;
   if (body.top_p !== undefined) out.generationConfig.topP = body.top_p;
-  if (body.max_tokens ?? body.max_completion_tokens) {
-    out.generationConfig.maxOutputTokens = body.max_tokens ?? body.max_completion_tokens;
-  }
+  out.generationConfig.maxOutputTokens = body.max_tokens ?? body.max_completion_tokens ?? defaultMaxTokens;
   if (body.stop) {
     out.generationConfig.stopSequences = Array.isArray(body.stop) ? body.stop : [body.stop];
   }
@@ -941,6 +952,7 @@ app.get(`${API_PREFIX}/models`, (c) => {
  *
  * Behavior per model:
  * - Anthropic-compatible models → translates to Anthropic Messages, calls /v1/messages, translates back
+ * - Gemini models → translates to Vertex GenerateContent format
  * - `gpt-5.x` / `o1` / `o3` / `o4` → rewrites `max_tokens` → `max_completion_tokens`
  * - others (Kimi etc.) → direct passthrough
  *
@@ -979,7 +991,8 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   // ===== Branch 1: Anthropic-compatible models → translate to Anthropic =====
   if (isAnthropicModel(body.model)) {
     const thinkingCfg = getClaudeThinkingConfig(body.model);
-    const anthropicBody = openaiToAnthropicRequest(body);
+    const defaultMaxTokens = getDefaultMaxTokens(c, "ANTHROPIC_DEFAULT_MAX_TOKENS", 8192);
+    const anthropicBody = openaiToAnthropicRequest(body, defaultMaxTokens);
 
     if (!isStream) {
       const resp = await fetch(`${BLOOME_LLM_BASE}/v1/messages`, {
@@ -1103,7 +1116,8 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   // ===== Branch 3: Google (Gemini via Vertex) =====
   if (isGoogleModel(body.model)) {
     const googleCfg = getGoogleThinkingConfig(body.model);
-    const googleBody = openaiToGoogleRequest(body);
+    const defaultMaxTokens = getDefaultMaxTokens(c, "GEMINI_DEFAULT_MAX_TOKENS", 8192);
+    const googleBody = openaiToGoogleRequest(body, defaultMaxTokens);
     const upstreamHeaders: Record<string, string> = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`
