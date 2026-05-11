@@ -786,6 +786,15 @@ function googleToOpenaiResponse(data: any, publicModel?: string): any {
   };
 }
 
+function googleUsageToOpenAIUsage(usageMetadata: any): any | null {
+  if (!usageMetadata) return null;
+  return {
+    prompt_tokens: usageMetadata.promptTokenCount || 0,
+    completion_tokens: usageMetadata.candidatesTokenCount || 0,
+    total_tokens: usageMetadata.totalTokenCount || 0,
+  };
+}
+
 // ========== Cleaning (OpenAI native upstream: Kimi / GPT) ==========
 
 /**
@@ -1133,6 +1142,53 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
         await stream.write("data: " + JSON.stringify(obj) + "\n\n");
       };
 
+      const writeGoogleResponse = async (d: any) => {
+        const candidate = d.candidates?.[0];
+        const parts = candidate?.content?.parts || [];
+        const finishReason = candidate?.finishReason;
+        chunkId = d.responseId || chunkId;
+        if (!roleSent) { await writeChunk({ role: "assistant", content: "" }); roleSent = true; }
+        for (const part of parts) {
+          if (part?.functionCall?.name) {
+            const name = part.functionCall.name;
+            let toolIndex = googleToolCallIndexes.get(name);
+            if (toolIndex === undefined) {
+              toolIndex = nextToolIndex++;
+              googleToolCallIndexes.set(name, toolIndex);
+            }
+            sawToolCall = true;
+            await writeChunk(openAIToolCallDelta(
+              toolIndex,
+              `call_${toolIndex}`,
+              name,
+              stringifyToolArguments(part.functionCall.args),
+            ));
+            continue;
+          }
+          const textDelta = part?.text || "";
+          if (!textDelta) continue;
+          if (part?.thought === true) await writeChunk({ reasoning_content: textDelta });
+          else await writeChunk({ content: textDelta });
+        }
+        if (finishReason) {
+          await writeChunk({}, sawToolCall ? "tool_calls" : (mapGoogleFinishReason(finishReason) || "stop"), googleUsageToOpenAIUsage(d.usageMetadata));
+        }
+      };
+
+      const handleGoogleStreamLine = async (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === "data: [DONE]" || trimmed === "[DONE]") return;
+        const jsonStr = trimmed.startsWith("data:") ? trimmed.slice(5).trim() : trimmed;
+        if (!jsonStr) return;
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const items = Array.isArray(parsed) ? parsed : [parsed];
+          for (const item of items) await writeGoogleResponse(item);
+        } catch (e) {
+          // Ignore partial or non-data SSE lines.
+        }
+      };
+
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -1142,46 +1198,10 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           while ((nl = buffer.indexOf("\n")) !== -1) {
             const line = buffer.slice(0, nl).replace(/\r$/, "");
             buffer = buffer.slice(nl + 1);
-            if (line.startsWith("data:")) {
-              const jsonStr = line.slice(5).trim();
-              if (!jsonStr) continue;
-              try {
-                const d = JSON.parse(jsonStr);
-                const candidate = d.candidates?.[0];
-                const parts = candidate?.content?.parts || [];
-                const finishReason = candidate?.finishReason;
-                chunkId = d.responseId || chunkId;
-                if (!roleSent) { await writeChunk({ role: "assistant", content: "" }); roleSent = true; }
-                for (const part of parts) {
-                  if (part?.functionCall?.name) {
-                    const name = part.functionCall.name;
-                    let toolIndex = googleToolCallIndexes.get(name);
-                    if (toolIndex === undefined) {
-                      toolIndex = nextToolIndex++;
-                      googleToolCallIndexes.set(name, toolIndex);
-                    }
-                    sawToolCall = true;
-                    await writeChunk(openAIToolCallDelta(
-                      toolIndex,
-                      `call_${toolIndex}`,
-                      name,
-                      stringifyToolArguments(part.functionCall.args),
-                    ));
-                    continue;
-                  }
-                  const textDelta = part?.text || "";
-                  if (!textDelta) continue;
-                  if (part?.thought === true) await writeChunk({ reasoning_content: textDelta });
-                  else await writeChunk({ content: textDelta });
-                }
-                if (finishReason) {
-                  const usage = d.usageMetadata ? { prompt_tokens: d.usageMetadata.promptTokenCount || 0, completion_tokens: d.usageMetadata.candidatesTokenCount || 0, total_tokens: d.usageMetadata.totalTokenCount || 0 } : null;
-                  await writeChunk({}, sawToolCall ? "tool_calls" : (mapGoogleFinishReason(finishReason) || "stop"), usage);
-                }
-              } catch (e) {}
-            }
+            if (!line.startsWith("event:")) await handleGoogleStreamLine(line);
           }
         }
+        if (buffer.trim()) await handleGoogleStreamLine(buffer);
         await stream.write("data: [DONE]\n\n");
       } finally {
         reader.releaseLock();
