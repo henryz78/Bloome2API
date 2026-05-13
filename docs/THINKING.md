@@ -276,7 +276,14 @@ thinkingConfig: {
 
 ### Gemini 流式
 
-已确认当前 Bloome 上游的 Gemini 路径只提供非流式行为。代理侧不要为了 Gemini 额外堆流式 parser 兼容逻辑；如果客户端强制 `stream: true`，也只能按上游实际返回结果处理，不能保证真正逐块输出。
+已确认当前 Bloome 上游的 Gemini 路径只提供非流式行为。代理侧不要为了 Gemini 额外堆上游流式 parser 兼容逻辑，也不要恢复 `streamGenerateContent` 方向。
+
+当前实现对 Gemini 的 `stream: true` 采用代理层伪流式：
+
+- 上游仍调用非流式 `generateContent`
+- 代理先返回空的 assistant role chunk，让客户端进入 SSE 状态
+- 拿到完整上游结果后，再按 OpenAI SSE chunk 拆分 `content` / `reasoning_content` / `tool_calls`
+- 这不是 Bloome 上游真流式，不能降低长非流式回答的上游 timeout 风险
 
 ### OpenAI / DeepSeek / Kimi / GLM 流式
 

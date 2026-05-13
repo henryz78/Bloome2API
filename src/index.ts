@@ -998,6 +998,87 @@ function googleToOpenaiResponse(data: any, publicModel?: string): any {
   };
 }
 
+const GEMINI_PSEUDO_STREAM_CHUNK_CHARS = 24;
+const GEMINI_PSEUDO_STREAM_DELAY_MS = 25;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function splitTextChunks(text: string, chunkSize: number): string[] {
+  if (!text) return [];
+  const chars = Array.from(text);
+  const chunks: string[] = [];
+  for (let i = 0; i < chars.length; i += chunkSize) {
+    chunks.push(chars.slice(i, i + chunkSize).join(""));
+  }
+  return chunks;
+}
+
+async function writeOpenAIStreamChunk(
+  stream: any,
+  id: string,
+  model: string,
+  delta: any,
+  finishReason: string | null = null,
+  usage: any = null,
+) {
+  const obj: any = {
+    id,
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [{ index: 0, delta, finish_reason: finishReason, logprobs: null }],
+  };
+  if (usage) obj.usage = usage;
+  await stream.write("data: " + JSON.stringify(obj) + "\n\n");
+}
+
+async function writePseudoTextChunks(
+  stream: any,
+  id: string,
+  model: string,
+  field: "content" | "reasoning_content",
+  text: any,
+) {
+  if (typeof text !== "string" || !text) return;
+  const chunks = splitTextChunks(text, GEMINI_PSEUDO_STREAM_CHUNK_CHARS);
+  for (const chunk of chunks) {
+    await writeOpenAIStreamChunk(stream, id, model, { [field]: chunk });
+    await sleep(GEMINI_PSEUDO_STREAM_DELAY_MS);
+  }
+}
+
+async function writeGeminiPseudoStream(
+  stream: any,
+  completion: any,
+  publicModel: string,
+  chunkId: string,
+) {
+  const choice = completion?.choices?.[0] || {};
+  const message = choice.message || {};
+  const model = publicModel || completion?.model || "";
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+
+  await writePseudoTextChunks(stream, chunkId, model, "reasoning_content", message.reasoning_content);
+  await writePseudoTextChunks(stream, chunkId, model, "content", message.content);
+
+  for (let i = 0; i < toolCalls.length; i++) {
+    const call = toolCalls[i] || {};
+    await writeOpenAIStreamChunk(stream, chunkId, model, openAIToolCallDelta(
+      i,
+      call.id || `call_${i}`,
+      call.function?.name || "",
+      stringifyToolArguments(call.function?.arguments),
+    ));
+    await sleep(GEMINI_PSEUDO_STREAM_DELAY_MS);
+  }
+
+  const finishReason = toolCalls.length > 0 ? "tool_calls" : (choice.finish_reason || "stop");
+  await writeOpenAIStreamChunk(stream, chunkId, model, {}, finishReason, completion?.usage || null);
+  await stream.write("data: [DONE]\n\n");
+}
+
 // ========== Cleaning (OpenAI native upstream: Kimi / GPT) ==========
 
 /**
@@ -1356,92 +1437,31 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       return c.json(googleToOpenaiResponse(upstream, googleCfg.publicModel), resp.status as any);
     }
     return streamSSE(c, async (stream) => {
-      const resp = await fetch(`${BLOOME_LLM_BASE}/v1/models/${googleCfg.upstreamModel}:streamGenerateContent?alt=sse`, {
-        method: "POST", headers: upstreamHeaders, body: JSON.stringify(googleBody)
-      });
-      if (!resp.ok || !resp.body) {
-        const text = await resp.text();
-        logInternal("upstream_error", {
-          requestId: getRequestId(c),
-          branch: "gemini_stream",
-          model: body.model,
-          upstreamStatus: resp.status,
-          body: text,
-        });
-        const mapped = classifyUpstreamStatus(resp.status);
-        await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type, text)}\n\n`);
-        await stream.close();
-        return;
-      }
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let chunkId = "", chunkModel = googleCfg.publicModel, roleSent = false;
-      let sawToolCall = false;
-      let nextToolIndex = 0;
-      const googleToolCallIndexes = new Map<string, number>();
-      
-      const writeChunk = async (delta: any, finish_reason: string | null = null, usage: any = null) => {
-        const obj: any = {
-          id: chunkId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000),
-          model: chunkModel, choices: [{ index: 0, delta, finish_reason, logprobs: null }]
-        };
-        if (usage) obj.usage = usage;
-        await stream.write("data: " + JSON.stringify(obj) + "\n\n");
-      };
-
+      const requestId = getRequestId(c);
+      const chunkId = `chatcmpl-${requestId || generateRequestId()}`;
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let nl: number;
-          while ((nl = buffer.indexOf("\n")) !== -1) {
-            const line = buffer.slice(0, nl).replace(/\r$/, "");
-            buffer = buffer.slice(nl + 1);
-            if (line.startsWith("data:")) {
-              const jsonStr = line.slice(5).trim();
-              if (!jsonStr) continue;
-              try {
-                const d = JSON.parse(jsonStr);
-                const candidate = d.candidates?.[0];
-                const parts = candidate?.content?.parts || [];
-                const finishReason = candidate?.finishReason;
-                chunkId = d.responseId || chunkId;
-                if (!roleSent) { await writeChunk({ role: "assistant", content: "" }); roleSent = true; }
-                for (const part of parts) {
-                  if (part?.functionCall?.name) {
-                    const name = part.functionCall.name;
-                    let toolIndex = googleToolCallIndexes.get(name);
-                    if (toolIndex === undefined) {
-                      toolIndex = nextToolIndex++;
-                      googleToolCallIndexes.set(name, toolIndex);
-                    }
-                    sawToolCall = true;
-                    await writeChunk(openAIToolCallDelta(
-                      toolIndex,
-                      `call_${toolIndex}`,
-                      name,
-                      stringifyToolArguments(part.functionCall.args),
-                    ));
-                    continue;
-                  }
-                  const textDelta = part?.text || "";
-                  if (!textDelta) continue;
-                  if (part?.thought === true) await writeChunk({ reasoning_content: textDelta });
-                  else await writeChunk({ content: textDelta });
-                }
-                if (finishReason) {
-                  const usage = d.usageMetadata ? { prompt_tokens: d.usageMetadata.promptTokenCount || 0, completion_tokens: d.usageMetadata.candidatesTokenCount || 0, total_tokens: d.usageMetadata.totalTokenCount || 0 } : null;
-                  await writeChunk({}, sawToolCall ? "tool_calls" : (mapGoogleFinishReason(finishReason) || "stop"), usage);
-                }
-              } catch (e) {}
-            }
-          }
+        await writeOpenAIStreamChunk(stream, chunkId, googleCfg.publicModel, { role: "assistant", content: "" });
+
+        const resp = await fetch(`${BLOOME_LLM_BASE}/v1/models/${googleCfg.upstreamModel}:generateContent`, {
+          method: "POST", headers: upstreamHeaders, body: JSON.stringify(googleBody)
+        });
+        const upstream: any = await resp.json().catch(() => null);
+        if (!resp.ok || upstream?.error) {
+          logInternal("upstream_error", {
+            requestId,
+            branch: "gemini_pseudo_stream",
+            model: body.model,
+            upstreamStatus: resp.status,
+            body: upstream,
+          });
+          const mapped = classifyUpstreamStatus(resp.status);
+          await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type, upstream)}\n\n`);
+          return;
         }
-        await stream.write("data: [DONE]\n\n");
+
+        const completion = googleToOpenaiResponse(upstream, googleCfg.publicModel);
+        await writeGeminiPseudoStream(stream, completion, googleCfg.publicModel, chunkId);
       } finally {
-        reader.releaseLock();
         await stream.close();
       }
     });
