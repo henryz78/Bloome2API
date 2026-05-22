@@ -23,7 +23,7 @@
 | Claude Opus 4.6 | `claude-opus-4-6` | Anthropic | `claude-opus-4-6` | 否 | 返回名未变 |
 | Claude Sonnet 4.6 | `claude-sonnet-4-6` | Anthropic | `claude-sonnet-4-6` | 否 | 返回名未变 |
 | Claude Haiku 4.5 | `claude-haiku-4-5` | Anthropic | `claude-haiku-4-5-20251001` | 否 | 返回为带日期后缀的具体版本 |
-| Claude Opus 4.7 Thinking | `claude-opus-4-7-thinking` | Anthropic | `claude-opus-4-7` | 否 | thinking alias；当前已启用 adaptive，但上游暂未返回可见 thinking 文本 |
+| Claude Opus 4.7 Thinking | `claude-opus-4-7-thinking` | Anthropic | `claude-opus-4-7` | 否 | thinking alias；代理会提取 `thinking` / `thinking_delta` 映射到 `reasoning_content` |
 | Claude Opus 4.6 Thinking | `claude-opus-4-6-thinking` | Anthropic | `claude-opus-4-6` | 否 | thinking alias；代理会提取 `thinking` / `thinking_delta` 映射到 `reasoning_content` |
 | Claude Sonnet 4.6 Thinking | `claude-sonnet-4-6-thinking` | Anthropic | `claude-sonnet-4-6` | 否 | thinking alias；代理会提取 `thinking` / `thinking_delta` 映射到 `reasoning_content` |
 | Claude Haiku 4.5 Thinking | `claude-haiku-4-5-thinking` | Anthropic | `claude-haiku-4-5-20251001` | 否 | thinking alias；固定走 `enabled + budget_tokens` |
@@ -32,14 +32,17 @@
 | GPT 5.4 Thinking | `gpt-5.4-thinking` | OpenAI | `gpt-5.4-2026-03-05` | 否 | thinking alias；代理会映射到 `gpt-5.4` 并注入 `reasoning_effort: medium` |
 | GPT 5.4 Mini | `gpt-5.4-mini` | OpenAI | `gpt-5.4-mini-2026-03-17` | 否 | 返回为带日期后缀的具体版本 |
 | GPT 5.4 Mini Thinking | `gpt-5.4-mini-thinking` | OpenAI | `gpt-5.4-mini-2026-03-17` | 否 | thinking alias；代理会映射到 `gpt-5.4-mini` 并注入 `reasoning_effort: medium` |
+| GPT 5.5 | `gpt-5.5` | OpenAI | `gpt-5.5-2026-04-24` | 否 | 新模型；需要 `max_completion_tokens` |
+| GPT 5.5 Thinking | `gpt-5.5-thinking` | OpenAI | `gpt-5.5-2026-04-24` | 否 | thinking alias；代理会映射到 `gpt-5.5` 并注入 `reasoning_effort: medium` |
+| GLM 5.0 | `glm-5.0` | OpenAI | `glm-5.0` | 否 | 返回名未变 |
 | GLM 5.1 | `glm-5.1` | OpenAI | `glm-5.1` | 否 | 返回名未变 |
 | Kimi K2.6 | `kimi-k2.6` | OpenAI | `kimi-k2.6` | 否 | 返回名未变 |
-| Kimi K2.5 | `kimi-k2.5` | OpenAI | `kimi-k2.6` | 是 | 实际落到 K2.6 |
-| Xiaomi MiMo V2 Pro | `mimo-v2-pro` | OpenAI | `xiaomi/mimo-v2.5-pro-20260422` | 是 | alias 对应到更具体的新版本 |
-| Xiaomi MiMo V2 Omni | `mimo-v2-omni` | OpenAI | `xiaomi/mimo-v2.5-20260422` | 是 | alias 对应到更具体的新版本 |
+| Kimi K2.5 | `kimi-k2.5` | OpenAI | `kimi-k2.5` | 否 | 返回名未变 |
+| Xiaomi MiMo V2 Pro | `mimo-v2-pro` | OpenAI | `mimo-v2-pro` | 否 | 返回名未变 |
+| Xiaomi MiMo V2 Omni | `mimo-v2-omni` | OpenAI | `mimo-v2-omni` | 否 | 返回名未变 |
 | DeepSeek V4 Pro | `deepseek-v4-pro` | OpenAI | `deepseek-v4-pro` | 否 | 返回名未变 |
 | DeepSeek V4 Flash | `deepseek-v4-flash` | OpenAI | `deepseek-v4-flash` | 否 | 返回名未变 |
-| DeepSeek V3.2 | `deepseek-v3-2` | OpenAI | `deepseek-v4-pro` | 是 | 实际落到 V4 Pro；注意代理 id 里是连字符，不是点 |
+| DeepSeek V3.2 | `deepseek-v3-2` | OpenAI | `deepseek-v3-2` | 否 | 返回名未变 |
 | Gemini 3.1 Pro | `gemini-3.1-pro` | Gemini | `gemini-3.1-pro-preview` | 是 | 实际是 preview 版本 |
 | Gemini 3.1 Pro Thinking | `gemini-3.1-pro-thinking` | Gemini | `gemini-3.1-pro-preview` | 是 | thinking alias；代理会将 `parts[].thought` 映射到 `reasoning_content` |
 | Gemini 3 Flash | `gemini-3-flash` | Gemini | `gemini-3-flash-preview` | 是 | 实际是 preview 版本 |
@@ -95,6 +98,8 @@ Claude / MiniMax 走 Anthropic 协议，`max_tokens` 必填。网关在用户未
 可用 `ANTHROPIC_DEFAULT_MAX_TOKENS` 覆盖 Anthropic 兼容分支的默认值。
 
 Gemini 走 Vertex 协议。网关在用户未传时默认补 `generationConfig.maxOutputTokens = 65536`，可用 `GEMINI_DEFAULT_MAX_TOKENS` 覆盖。Gemini 的 `stream: true` 是代理层伪流式：上游仍调用非流式 `generateContent`，代理拿到完整结果后再拆成 OpenAI SSE chunk 返回。
+
+OpenAI 分支里，GPT-5.5 也和 GPT-5.4 一样要求 `max_completion_tokens`，网关会自动从 `max_tokens` 转换。
 
 Kimi / GPT / GLM / DeepSeek / Mimo 走 OpenAI 原生分支，用户未传时网关不主动补输出上限。
 

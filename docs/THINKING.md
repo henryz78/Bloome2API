@@ -45,6 +45,7 @@
 - `gemini-3-flash-thinking`
 - `gpt-5.4-thinking`
 - `gpt-5.4-mini-thinking`
+- `gpt-5.5-thinking`
 
 语义固定为：
 
@@ -117,11 +118,12 @@ thinkingConfig: {
 
 - `gpt-5.4-thinking`
 - `gpt-5.4-mini-thinking`
+- `gpt-5.5-thinking`
 
 实现方式：
 
 - 对外保留 `-thinking` alias
-- 上游请求映射回普通模型：`gpt-5.4` / `gpt-5.4-mini`
+- 上游请求映射回普通模型：`gpt-5.4` / `gpt-5.4-mini` / `gpt-5.5`
 - 代理注入 `reasoning_effort: "medium"`
 
 注意：
@@ -129,6 +131,11 @@ thinkingConfig: {
 - GPT-5 官方 reasoning 更适合走 Responses API
 - Chat Completions 可能只能看到 reasoning token 计数，不一定返回可见 reasoning 文本
 - 如果未来需要可见 reasoning summary，再评估是否引入 Responses API 路径
+
+补充：
+
+- `gpt-5.5` 和 `gpt-5.4` 一样，属于需要 `max_completion_tokens` 的 reasoning 模型
+- `glm-5.0` / `glm-5.1` / `kimi-k2.5` / `kimi-k2.6` / `deepseek-v3-2` / `deepseek-v4-pro` / `deepseek-v4-flash` 这类模型本身已经返回 `reasoning_content`，不建议再额外加 `-thinking`
 
 ## Claude 家族的已确认行为
 
