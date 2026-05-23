@@ -111,20 +111,65 @@ function isDeveloperMode(c: Context): boolean {
   return ["1", "true", "yes", "on", "dev", "development"].includes(value);
 }
 
-function publicErrorMeta(status: number, type?: string): { status: number; type: string; message: string } {
-  if (type === "authentication_error") return { status, type, message: "Authentication error. Please check logs." };
-  if (type === "invalid_request_error") return { status, type, message: "Invalid request. Please check logs." };
-  if (type === "not_supported_error") return { status, type, message: "Endpoint or parameter is not supported. Please check logs." };
-  if (type === "upstream_timeout") return { status, type, message: "Upstream timeout. Please check logs." };
-  if (type === "service_unavailable") return { status, type, message: "Service temporarily unavailable. Please check logs." };
-  if (type === "server_error") return { status, type, message: "Server error. Please check logs." };
-  return { status, type: "upstream_error", message: "Upstream service error. Please check logs." };
+type PublicErrorType =
+  | "authentication_error"
+  | "configuration_error"
+  | "invalid_request_error"
+  | "unsupported_error"
+  | "not_supported_error"
+  | "model_not_found_error"
+  | "rate_limit_error"
+  | "upstream_timeout"
+  | "upstream_bad_request"
+  | "upstream_auth_error"
+  | "upstream_unavailable"
+  | "upstream_error"
+  | "server_error";
+
+type PublicErrorMeta = {
+  status: number;
+  type: PublicErrorType;
+  code: string;
+  message: string;
+};
+
+const PUBLIC_ERROR_META: Record<PublicErrorType, PublicErrorMeta> = {
+  authentication_error: { status: 401, type: "authentication_error", code: "authentication_failed", message: "Authentication error. Please check logs." },
+  configuration_error: { status: 500, type: "configuration_error", code: "server_misconfigured", message: "Server configuration error. Please check logs." },
+  invalid_request_error: { status: 400, type: "invalid_request_error", code: "invalid_request", message: "Invalid request. Please check logs." },
+  unsupported_error: { status: 400, type: "unsupported_error", code: "unsupported_parameter", message: "Parameter is not supported. Please check logs." },
+  not_supported_error: { status: 501, type: "not_supported_error", code: "not_supported", message: "Endpoint or capability is not supported. Please check logs." },
+  model_not_found_error: { status: 404, type: "model_not_found_error", code: "model_not_found", message: "Model not found. Please check logs." },
+  rate_limit_error: { status: 503, type: "rate_limit_error", code: "rate_limited", message: "Upstream rate limit reached. Please check logs." },
+  upstream_timeout: { status: 504, type: "upstream_timeout", code: "upstream_timeout", message: "Upstream timeout. Please check logs." },
+  upstream_bad_request: { status: 502, type: "upstream_bad_request", code: "upstream_bad_request", message: "Upstream rejected the request. Please check logs." },
+  upstream_auth_error: { status: 502, type: "upstream_auth_error", code: "upstream_auth_error", message: "Upstream authentication or permission error. Please check logs." },
+  upstream_unavailable: { status: 503, type: "upstream_unavailable", code: "upstream_unavailable", message: "Upstream service temporarily unavailable. Please check logs." },
+  upstream_error: { status: 502, type: "upstream_error", code: "upstream_error", message: "Upstream service error. Please check logs." },
+  server_error: { status: 500, type: "server_error", code: "server_error", message: "Server error. Please check logs." },
+};
+
+function normalizeErrorType(type?: string): PublicErrorType {
+  if (type === "service_unavailable") return "upstream_unavailable";
+  if (type && type in PUBLIC_ERROR_META) return type as PublicErrorType;
+  return "upstream_error";
+}
+
+function publicErrorMeta(status: number, type?: string): PublicErrorMeta {
+  const normalizedType = normalizeErrorType(type);
+  const base = PUBLIC_ERROR_META[normalizedType];
+  return { ...base, status: status || base.status };
+}
+
+function publicErrorBody(meta: PublicErrorMeta, detail: any, exposeDetail: boolean): any {
+  const error: any = { message: meta.message, type: meta.type, code: meta.code };
+  if (detail !== undefined && exposeDetail) error.detail = detail;
+  return error;
 }
 
 function jsonError(c: Context, status: number, type?: string, detail?: any) {
   const meta = publicErrorMeta(status, type);
-  const error: any = { message: meta.message, type: meta.type };
-  if (detail !== undefined && isDeveloperMode(c)) error.detail = detail;
+  const error = publicErrorBody(meta, detail, isDeveloperMode(c));
   return c.json({
     error,
     request_id: getRequestId(c),
@@ -133,8 +178,7 @@ function jsonError(c: Context, status: number, type?: string, detail?: any) {
 
 function sseErrorPayload(c: Context, status: number, type?: string, detail?: any) {
   const meta = publicErrorMeta(status, type);
-  const error: any = { message: meta.message, type: meta.type };
-  if (detail !== undefined && isDeveloperMode(c)) error.detail = detail;
+  const error = publicErrorBody(meta, detail, isDeveloperMode(c));
   return JSON.stringify({
     error,
     request_id: getRequestId(c),
@@ -143,8 +187,7 @@ function sseErrorPayload(c: Context, status: number, type?: string, detail?: any
 
 function anthropicJsonError(c: Context, status: number, type?: string, detail?: any) {
   const meta = publicErrorMeta(status, type);
-  const error: any = { type: meta.type, message: meta.message };
-  if (detail !== undefined && isDeveloperMode(c)) error.detail = detail;
+  const error = publicErrorBody(meta, detail, isDeveloperMode(c));
   return c.json({
     type: "error",
     error,
@@ -154,8 +197,7 @@ function anthropicJsonError(c: Context, status: number, type?: string, detail?: 
 
 function anthropicSseErrorPayload(c: Context, status: number, type?: string, detail?: any) {
   const meta = publicErrorMeta(status, type);
-  const error: any = { type: meta.type, message: meta.message };
-  if (detail !== undefined && isDeveloperMode(c)) error.detail = detail;
+  const error = publicErrorBody(meta, detail, isDeveloperMode(c));
   return JSON.stringify({
     type: "error",
     error,
@@ -163,16 +205,57 @@ function anthropicSseErrorPayload(c: Context, status: number, type?: string, det
   });
 }
 
-function classifyUpstreamStatus(status: number): { status: number; type: string } {
-  if (status === 429) return { status: 503, type: "service_unavailable" };
+function upstreamErrorText(body: any): string {
+  if (body == null) return "";
+  if (typeof body === "string") return body;
+  const parts: string[] = [];
+  for (const value of [
+    body.error?.message,
+    body.error?.type,
+    body.message,
+    body.type,
+    body.detail,
+  ]) {
+    if (typeof value === "string") parts.push(value);
+  }
+  try {
+    parts.push(JSON.stringify(body));
+  } catch {
+    // Ignore non-serializable body shapes.
+  }
+  return parts.join(" ").toLowerCase();
+}
+
+function classifyUpstreamError(status: number, body?: any): { status: number; type: PublicErrorType } {
+  const text = upstreamErrorText(body);
+  if (text.includes("model alias") && text.includes("not found")) return { status: 404, type: "model_not_found_error" };
+  if (text.includes("model") && text.includes("not found")) return { status: 404, type: "model_not_found_error" };
+  if (text.includes("unknown gemini action")) return { status: 501, type: "not_supported_error" };
+  if (text.includes("rate limit") || text.includes("too many requests") || text.includes("quota")) return { status: 503, type: "rate_limit_error" };
+  if (text.includes("timeout") || text.includes("timed out")) return { status: 504, type: "upstream_timeout" };
+  if (text.includes("unauthorized") || text.includes("forbidden") || text.includes("permission") || text.includes("invalid api key")) {
+    return { status: 502, type: "upstream_auth_error" };
+  }
+
+  if (status === 400) return { status: 502, type: "upstream_bad_request" };
+  if (status === 401 || status === 403) return { status: 502, type: "upstream_auth_error" };
+  if (status === 404) return { status: 404, type: "model_not_found_error" };
   if (status === 408 || status === 504) return { status: 504, type: "upstream_timeout" };
+  if (status === 409) return { status: 503, type: "upstream_unavailable" };
+  if (status === 429) return { status: 503, type: "rate_limit_error" };
+  if (status === 501) return { status: 501, type: "not_supported_error" };
+  if (status === 502 || status === 503 || status >= 500) return { status: 503, type: "upstream_unavailable" };
   return { status: 502, type: "upstream_error" };
 }
 
-function classifyInternalGatewayStatus(status: number, body: any): { status: number; type: string } {
+function classifyUpstreamStatus(status: number, body?: any): { status: number; type: PublicErrorType } {
+  return classifyUpstreamError(status, body);
+}
+
+function classifyInternalGatewayStatus(status: number, body: any): { status: number; type: PublicErrorType } {
   const type = typeof body?.error?.type === "string" ? body.error.type : undefined;
-  if (type && status >= 400 && status < 600) return { status, type };
-  return classifyUpstreamStatus(status);
+  if (type && status >= 400 && status < 600) return { status, type: normalizeErrorType(type) };
+  return classifyUpstreamError(status, body);
 }
 
 function isUpstreamNotSupportedStatus(status: number): boolean {
@@ -181,9 +264,7 @@ function isUpstreamNotSupportedStatus(status: number): boolean {
 
 function openAIEventError(c: Context, status: number, type?: string, detail?: any): any {
   const meta = publicErrorMeta(status, type);
-  const error: any = { message: meta.message, type: meta.type };
-  if (detail !== undefined && isDeveloperMode(c)) error.detail = detail;
-  return error;
+  return publicErrorBody(meta, detail, isDeveloperMode(c));
 }
 
 function getClientToken(c: Context): string {
@@ -266,7 +347,7 @@ app.use(`${API_PREFIX}/*`, async (c, next) => {
 
   const expectedKey = getEnv(c, "CLIENT_API_KEY");
   if (!expectedKey) {
-    return jsonError(c, 500, "server_error");
+    return jsonError(c, 500, "configuration_error");
   }
 
   const token = getClientToken(c);
@@ -308,7 +389,7 @@ async function checkUpstreamHealth(c: Context): Promise<any> {
     const data = await resp.json().catch(() => null);
     const hasChoices = Array.isArray(data?.choices) && data.choices.length > 0;
     const ok = resp.ok && hasChoices;
-    const reason = ok ? null : classifyUpstreamStatus(resp.status).type;
+    const reason = ok ? null : classifyUpstreamStatus(resp.status, data).type;
     if (!ok) {
       logInternal("health_upstream_error", {
         requestId: getRequestId(c),
@@ -991,8 +1072,9 @@ function cleanAnthropicSSELine(line: string, publicModel: string, requestId: str
   if (!data || typeof data !== "object") return line;
 
   if (data.type === "error" || data.error) {
-    const error: any = { type: "upstream_error", message: "Upstream service error. Please check logs." };
-    if (exposeErrorDetails) error.detail = data.error || data;
+    const mapped = classifyUpstreamError(502, data.error || data);
+    const meta = publicErrorMeta(mapped.status, mapped.type);
+    const error = publicErrorBody(meta, data.error || data, exposeErrorDetails);
     return "data: " + JSON.stringify({ type: "error", error, request_id: requestId });
   }
 
@@ -1312,8 +1394,9 @@ function cleanSSEDataLine(line: string, publicModel?: string, requestId?: string
   }
   if (!data || typeof data !== "object") return { line };
   if (data.error) {
-    const error: any = { message: "Upstream service error. Please check logs.", type: "upstream_error" };
-    if (exposeErrorDetails) error.detail = data.error;
+    const mapped = classifyUpstreamError(502, data.error);
+    const meta = publicErrorMeta(mapped.status, mapped.type);
+    const error = publicErrorBody(meta, data.error, exposeErrorDetails);
     return {
       line: "data: " + JSON.stringify({
         error,
@@ -1838,7 +1921,7 @@ app.get(`${API_PREFIX}/models`, (c) => {
 app.post(`${API_PREFIX}/messages`, async (c) => {
   const apiKey = getEnv(c, "BLOOME_API_KEY");
   if (!apiKey) {
-    return anthropicJsonError(c, 500, "server_error");
+    return anthropicJsonError(c, 500, "configuration_error");
   }
   const body = await c.req.json().catch(() => null);
   if (!body) {
@@ -1864,7 +1947,7 @@ app.post(`${API_PREFIX}/messages`, async (c) => {
         upstreamStatus: resp.status,
         body: upstream,
       });
-      const mapped = classifyUpstreamStatus(resp.status);
+      const mapped = classifyUpstreamStatus(resp.status, upstream);
       return anthropicJsonError(c, mapped.status, mapped.type, upstream);
     }
     return c.json(cleanAnthropicNativeResponse(upstream, normalized.publicModel), resp.status as any);
@@ -1885,7 +1968,7 @@ app.post(`${API_PREFIX}/messages`, async (c) => {
         upstreamStatus: resp.status,
         body: text,
       });
-      const mapped = classifyUpstreamStatus(resp.status);
+      const mapped = classifyUpstreamStatus(resp.status, text);
       await stream.write(`event: error\ndata: ${anthropicSseErrorPayload(c, mapped.status, mapped.type, text)}\n\n`);
       await stream.close();
       return;
@@ -1927,7 +2010,7 @@ app.post(`${API_PREFIX}/messages`, async (c) => {
 app.post(`${API_PREFIX}/messages/count_tokens`, async (c) => {
   const apiKey = getEnv(c, "BLOOME_API_KEY");
   if (!apiKey) {
-    return anthropicJsonError(c, 500, "server_error");
+    return anthropicJsonError(c, 500, "configuration_error");
   }
   const body = await c.req.json().catch(() => null);
   if (!body) {
@@ -1958,7 +2041,7 @@ app.post(`${API_PREFIX}/messages/count_tokens`, async (c) => {
     if (isUpstreamNotSupportedStatus(resp.status)) {
       return anthropicJsonError(c, 501, "not_supported_error", upstream);
     }
-    const mapped = classifyUpstreamStatus(resp.status);
+    const mapped = classifyUpstreamStatus(resp.status, upstream);
     return anthropicJsonError(c, mapped.status, mapped.type, upstream);
   }
   return c.json(upstream, resp.status as any);
@@ -1976,7 +2059,7 @@ app.post(`${API_PREFIX}/responses`, async (c) => {
   }
   const converted = responsesRequestToChatBody(body);
   if (!converted.chatBody) {
-    return jsonError(c, 400, "invalid_request_error", { unsupported: converted.unsupported });
+    return jsonError(c, 400, "unsupported_error", { unsupported: converted.unsupported });
   }
 
   if (body.stream === true) {
@@ -2036,7 +2119,7 @@ app.post(`${API_PREFIX}/responses`, async (c) => {
 app.post(`${API_PREFIX}/responses/input_tokens`, async (c) => {
   const apiKey = getEnv(c, "BLOOME_API_KEY");
   if (!apiKey) {
-    return jsonError(c, 500, "server_error");
+    return jsonError(c, 500, "configuration_error");
   }
   const body = await c.req.json().catch(() => null);
   if (!body) {
@@ -2048,7 +2131,7 @@ app.post(`${API_PREFIX}/responses/input_tokens`, async (c) => {
 
   const converted = responsesRequestToChatBody(body);
   if (!converted.chatBody) {
-    return jsonError(c, 400, "invalid_request_error", { unsupported: converted.unsupported });
+    return jsonError(c, 400, "unsupported_error", { unsupported: converted.unsupported });
   }
   const defaultMaxTokens = getAnthropicDefaultMaxTokens(c, body.model);
   const countBody = openaiToAnthropicRequest(converted.chatBody, defaultMaxTokens);
@@ -2072,7 +2155,7 @@ app.post(`${API_PREFIX}/responses/input_tokens`, async (c) => {
     if (isUpstreamNotSupportedStatus(resp.status)) {
       return jsonError(c, 501, "not_supported_error", upstream);
     }
-    const mapped = classifyUpstreamStatus(resp.status);
+    const mapped = classifyUpstreamStatus(resp.status, upstream);
     return jsonError(c, mapped.status, mapped.type, upstream);
   }
   return c.json({
@@ -2171,7 +2254,7 @@ app.get(`${API_PREFIX}/responses/:response_id/input_items`, (c) => {
 app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   const apiKey = getEnv(c, "BLOOME_API_KEY");
   if (!apiKey) {
-    return jsonError(c, 500, "server_error");
+    return jsonError(c, 500, "configuration_error");
   }
   const body = await c.req.json().catch(() => null);
   if (!body) {
@@ -2190,12 +2273,12 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
 
   const needsProtocolTranslation = isAnthropicModel(body.model) || isGoogleModel(body.model);
   if (needsProtocolTranslation && hasLegacyFunctionUse(body)) {
-    return jsonError(c, 400, "invalid_request_error");
+    return jsonError(c, 400, "unsupported_error", { unsupported: ["functions", "function_call"] });
   }
   if (needsProtocolTranslation) {
     const unsupportedReasons = getTranslatedChatUnsupportedReasons(body);
     if (unsupportedReasons.length > 0) {
-      return jsonError(c, 400, "invalid_request_error", { unsupported: unsupportedReasons });
+      return jsonError(c, 400, "unsupported_error", { unsupported: unsupportedReasons });
     }
   }
   // ===== Branch 1: Anthropic-compatible models → translate to Anthropic =====
@@ -2224,7 +2307,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           upstreamStatus: resp.status,
           body: upstream,
         });
-        const mapped = classifyUpstreamStatus(resp.status);
+        const mapped = classifyUpstreamStatus(resp.status, upstream);
         return jsonError(c, mapped.status, mapped.type, upstream);
       }
       return c.json(anthropicToOpenaiResponse(upstream, thinkingCfg.publicModel), resp.status as any);
@@ -2250,7 +2333,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           upstreamStatus: resp.status,
           body: text,
         });
-        const mapped = classifyUpstreamStatus(resp.status);
+        const mapped = classifyUpstreamStatus(resp.status, text);
         await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type, text)}\n\n`);
         await stream.close();
         return;
@@ -2369,7 +2452,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
           upstreamStatus: resp.status,
           body: upstream,
         });
-        const mapped = classifyUpstreamStatus(resp.status);
+        const mapped = classifyUpstreamStatus(resp.status, upstream);
         return jsonError(c, mapped.status, mapped.type, upstream);
       }
       return c.json(googleToOpenaiResponse(upstream, googleCfg.publicModel), resp.status as any);
@@ -2392,7 +2475,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
             upstreamStatus: resp.status,
             body: upstream,
           });
-          const mapped = classifyUpstreamStatus(resp.status);
+          const mapped = classifyUpstreamStatus(resp.status, upstream);
           await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type, upstream)}\n\n`);
           return;
         }
@@ -2442,7 +2525,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
         upstreamStatus: resp.status,
         body: data,
       });
-      const mapped = classifyUpstreamStatus(resp.status);
+      const mapped = classifyUpstreamStatus(resp.status, data);
       return jsonError(c, mapped.status, mapped.type, data);
     }
     return c.json(cleanChatCompletion(data, gptThinkingCfg.publicModel), resp.status as any);
@@ -2463,7 +2546,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
         upstreamStatus: resp.status,
         body: text,
       });
-      const mapped = classifyUpstreamStatus(resp.status);
+      const mapped = classifyUpstreamStatus(resp.status, text);
       await stream.write(`data: ${sseErrorPayload(c, mapped.status, mapped.type, text)}\n\n`);
       await stream.close();
       return;

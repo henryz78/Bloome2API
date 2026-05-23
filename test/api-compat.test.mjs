@@ -63,3 +63,33 @@ test("token count unsupported cases map to not_supported_error", () => {
   assert.match(source, /token counting is only available for Anthropic-compatible models/);
   assert.match(source, /return anthropicJsonError\(c, 501, "not_supported_error"/);
 });
+
+test("public errors have explicit type and code taxonomy", () => {
+  for (const type of [
+    "configuration_error",
+    "unsupported_error",
+    "model_not_found_error",
+    "rate_limit_error",
+    "upstream_bad_request",
+    "upstream_auth_error",
+    "upstream_unavailable",
+  ]) {
+    assert.match(source, new RegExp(`${type}: \\{`));
+  }
+  assert.match(source, /code: "model_not_found"/);
+  assert.match(source, /code: "unsupported_parameter"/);
+  assert.match(source, /publicErrorBody/);
+});
+
+test("upstream errors are classified by status and body text", () => {
+  assert.match(source, /function classifyUpstreamError/);
+  assert.match(source, /unknown gemini action/);
+  assert.match(source, /rate limit/);
+  assert.match(source, /invalid api key/);
+  assert.match(source, /status === 400\) return \{ status: 502, type: "upstream_bad_request" \}/);
+});
+
+test("translated unsupported parameters return unsupported_error", () => {
+  assert.match(source, /"unsupported_error", \{ unsupported: \["functions", "function_call"\] \}/);
+  assert.match(source, /"unsupported_error", \{ unsupported: unsupportedReasons \}/);
+});

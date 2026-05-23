@@ -45,6 +45,34 @@
 
 ---
 
+## 错误响应
+
+默认安全模式下，公开响应只返回稳定错误类型、错误码和 `request_id`，不暴露详细上游错误。需要排查时可临时设置：
+
+```bash
+export BLOOME2API_DEV_MODE=true
+```
+
+常见错误类型：
+
+| type | 含义 |
+|---|---|
+| `authentication_error` | 客户端认证失败 |
+| `configuration_error` | 网关环境变量缺失或配置错误 |
+| `invalid_request_error` | 请求 JSON / body / 必填字段错误 |
+| `unsupported_error` | endpoint 存在，但参数不支持 |
+| `not_supported_error` | endpoint / 模型能力不支持 |
+| `model_not_found_error` | 模型 alias 不存在 |
+| `rate_limit_error` | 上游限流或 quota 问题 |
+| `upstream_timeout` | 上游超时 |
+| `upstream_bad_request` | 上游拒绝请求，但不适合暴露原始原因 |
+| `upstream_auth_error` | 上游认证或权限异常 |
+| `upstream_unavailable` | 上游 5xx / 临时不可用 |
+| `upstream_error` | 未能细分的上游错误 |
+| `server_error` | 网关内部异常 |
+
+---
+
 ## 本地运行
 
 ```bash
