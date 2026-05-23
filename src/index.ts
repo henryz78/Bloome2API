@@ -930,12 +930,17 @@ function openaiToGoogleRequest(body: any, defaultMaxTokens: number): any {
       if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
         for (const call of m.tool_calls) {
           if (call?.type !== "function" || !call.function?.name) continue;
-          parts.push({
+          const part: any = {
             functionCall: {
               name: call.function.name,
               args: parseToolArguments(call.function.arguments),
             },
-          });
+          };
+          // Restore Gemini thoughtSignature round-tripped via tool_call.id
+          // (Vertex thinking models require it on prior function calls in multi-turn)
+          const tsMatch = typeof call.id === "string" ? call.id.match(/__ts_(.+)$/) : null;
+          if (tsMatch && tsMatch[1]) part.thoughtSignature = tsMatch[1];
+          parts.push(part);
         }
       }
       if (m.role === "system") {
@@ -975,8 +980,10 @@ function googleToOpenaiResponse(data: any, publicModel?: string): any {
       if (p.thought === true) reasoning += t;
       else text += t;
       if (p.functionCall?.name) {
+        const sig = typeof p.thoughtSignature === "string" && p.thoughtSignature ? p.thoughtSignature : undefined;
+        const baseId = `call_${toolCalls.length}`;
         toolCalls.push({
-          id: `call_${toolCalls.length}`,
+          id: sig ? `${baseId}__ts_${sig}` : baseId,
           type: "function",
           function: {
             name: p.functionCall.name,
@@ -1183,6 +1190,7 @@ function cleanSSEDataLine(line: string, publicModel?: string, requestId?: string
         if (choice.delta.role !== undefined) delta.role = choice.delta.role;
         if (choice.delta.content !== undefined) delta.content = choice.delta.content;
         if (choice.delta.reasoning_content !== undefined) delta.reasoning_content = choice.delta.reasoning_content;
+        if (Array.isArray(choice.delta.tool_calls)) delta.tool_calls = choice.delta.tool_calls;
       }
       const out: any = {
         index: typeof choice.index === "number" ? choice.index : 0,
@@ -1472,11 +1480,19 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
 
   // ===== Branch 2: OpenAI native upstream (Kimi / GPT) =====
   const gptThinkingCfg = getGPTThinkingConfig(body.model);
-  if (gptThinkingCfg.reasoningEffort && body.reasoning_effort === undefined) {
+  // gpt-5.5 specifically rejects reasoning_effort + tools combo in /v1/chat/completions
+  // (gpt-5.4 / 5.4-mini and other models accept this combo fine, no special-casing needed there).
+  const isGpt55Thinking = body.model === "gpt-5.5-thinking";
+  const skipReasoningEffortInjection = isGpt55Thinking && hasToolUse(body);
+  if (gptThinkingCfg.reasoningEffort && body.reasoning_effort === undefined && !skipReasoningEffortInjection) {
     body.reasoning_effort = gptThinkingCfg.reasoningEffort;
   }
   if (gptThinkingCfg.upstreamModel !== body.model) {
     body.model = gptThinkingCfg.upstreamModel;
+  }
+  // Even when reasoning_effort came from the client (not injected), strip it for gpt-5.5 + tools.
+  if (body.reasoning_effort !== undefined && hasToolUse(body) && String(body.model).toLowerCase() === "gpt-5.5") {
+    delete body.reasoning_effort;
   }
   maybeInjectOpenAIPromptCacheKey(body);
   stripInternalPromptCacheFlags(body);
