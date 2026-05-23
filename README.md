@@ -71,6 +71,8 @@ export BLOOME2API_DEV_MODE=true
 | `upstream_error` | 未能细分的上游错误 |
 | `server_error` | 网关内部异常 |
 
+完整错误分类、HTTP 状态和 `unsupported_error` / `not_supported_error` 的区别见 [docs/ERRORS.md](docs/ERRORS.md)。
+
 ---
 
 ## 本地运行

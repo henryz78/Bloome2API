@@ -218,18 +218,15 @@ function upstreamErrorText(body: any): string {
   ]) {
     if (typeof value === "string") parts.push(value);
   }
-  try {
-    parts.push(JSON.stringify(body));
-  } catch {
-    // Ignore non-serializable body shapes.
-  }
   return parts.join(" ").toLowerCase();
 }
 
 function classifyUpstreamError(status: number, body?: any): { status: number; type: PublicErrorType } {
   const text = upstreamErrorText(body);
   if (text.includes("model alias") && text.includes("not found")) return { status: 404, type: "model_not_found_error" };
-  if (text.includes("model") && text.includes("not found")) return { status: 404, type: "model_not_found_error" };
+  if (/\bmodel\b[^.]{0,80}\bnot found\b/.test(text) || /\bmodel not found\b/.test(text)) {
+    return { status: 404, type: "model_not_found_error" };
+  }
   if (text.includes("unknown gemini action")) return { status: 501, type: "not_supported_error" };
   if (text.includes("rate limit") || text.includes("too many requests") || text.includes("quota")) return { status: 503, type: "rate_limit_error" };
   if (text.includes("timeout") || text.includes("timed out")) return { status: 504, type: "upstream_timeout" };

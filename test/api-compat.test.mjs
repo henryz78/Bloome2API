@@ -89,6 +89,28 @@ test("upstream errors are classified by status and body text", () => {
   assert.match(source, /status === 400\) return \{ status: 502, type: "upstream_bad_request" \}/);
 });
 
+test("upstream error text does not scan full upstream payloads", () => {
+  const upstreamTextStart = source.indexOf("function upstreamErrorText");
+  const classifierStart = source.indexOf("function classifyUpstreamError");
+  assert.ok(upstreamTextStart > 0);
+  assert.ok(classifierStart > upstreamTextStart);
+
+  const upstreamTextSource = source.slice(upstreamTextStart, classifierStart);
+  assert.match(upstreamTextSource, /body\.error\?\.message/);
+  assert.doesNotMatch(upstreamTextSource, /JSON\.stringify\(body\)/);
+});
+
+test("model-not-found classification avoids broad unrelated text matches", () => {
+  const classifierStart = source.indexOf("function classifyUpstreamError");
+  const unsupportedStatusStart = source.indexOf("function classifyInternalGatewayStatus");
+  assert.ok(classifierStart > 0);
+  assert.ok(unsupportedStatusStart > classifierStart);
+
+  const classifierSource = source.slice(classifierStart, unsupportedStatusStart);
+  assert.match(classifierSource, /model alias/);
+  assert.doesNotMatch(classifierSource, /text\.includes\("model"\) && text\.includes\("not found"\)/);
+});
+
 test("translated unsupported parameters return unsupported_error", () => {
   assert.match(source, /"unsupported_error", \{ unsupported: \["functions", "function_call"\] \}/);
   assert.match(source, /"unsupported_error", \{ unsupported: unsupportedReasons \}/);
