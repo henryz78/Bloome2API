@@ -154,12 +154,17 @@ test("local deploy wrapper keeps secrets explicit and supports optional verifica
   assert.match(deployLocalScript, /EDGESPARK_SECRET_NAME/);
   assert.match(deployLocalScript, /RESON_LLM_API_KEY/);
   assert.match(deployLocalScript, /CLIENT_API_KEY/);
+  assert.match(deployLocalScript, /BLOOME_CMD/);
+  assert.match(deployLocalScript, /command -v bloome/);
+  assert.match(deployLocalScript, /command -v bloome-cli/);
+  assert.match(deployLocalScript, /bloome or bloome-cli not found/);
   assert.match(deployLocalScript, /export EDGESPARK_SECRET_NAME/);
   assert.match(deployLocalScript, /HOT_DEPLOY_ONLY/);
   assert.match(deployLocalScript, /BASE_URL/);
   assert.match(deployLocalScript, /require_cmd curl/);
   assert.match(deployLocalScript, /chat\/completions/);
   assert.match(deployLocalScript, /scripts\/deploy-edgespark\.sh/);
+  assert.doesNotMatch(deployLocalScript, /require_cmd bloome/);
   assert.doesNotMatch(deployLocalScript, /1346792580a/);
   assert.doesNotMatch(deployLocalScript, /CLIENT_API_KEY=["'][^"$]/);
   assert.match(deployNotes, /scripts\/deploy-local\.sh/);

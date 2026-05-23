@@ -175,6 +175,7 @@ bloome secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '
 ### 本地 Agent 快捷部署
 
 可以用 `scripts/deploy-local.sh` 封装 `bloome secret call`。这个脚本不会生成或硬编码 `CLIENT_API_KEY`，必须由用户明确提供。
+脚本会优先使用 `bloome`，找不到时 fallback 到 `bloome-cli`。
 
 ```bash
 export EDGESPARK_SECRET_NAME="EDGESPARK_API_KEY__<ALIAS>__<SUFFIX>"
