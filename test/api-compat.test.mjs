@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
 const deployScript = readFileSync(new URL("../scripts/deploy-edgespark.sh", import.meta.url), "utf8");
 const deployDoc = readFileSync(new URL("../DEPLOY.md", import.meta.url), "utf8");
+const deployNotes = readFileSync(new URL("../DEPLOY_NOTES.md", import.meta.url), "utf8");
+const deployLocalScript = readFileSync(new URL("../scripts/deploy-local.sh", import.meta.url), "utf8");
 
 test("public v1 exposes Anthropic Messages and OpenAI Responses compatibility routes", () => {
   assert.match(source, /API_PREFIX}\/messages`/);
@@ -146,4 +148,19 @@ test("deploy docs require user-provided client key and copyable success report",
   assert.doesNotMatch(deployDoc, /Bloome2API 部署成功/);
   assert.match(deployDoc, /不要替用户随机生成/);
   assert.doesNotMatch(deployDoc, /openssl rand|uuidgen|pwgen|randomBytes/i);
+});
+
+test("local deploy wrapper keeps secrets explicit and supports optional verification", () => {
+  assert.match(deployLocalScript, /EDGESPARK_SECRET_NAME/);
+  assert.match(deployLocalScript, /RESON_LLM_API_KEY/);
+  assert.match(deployLocalScript, /CLIENT_API_KEY/);
+  assert.match(deployLocalScript, /export EDGESPARK_SECRET_NAME/);
+  assert.match(deployLocalScript, /HOT_DEPLOY_ONLY/);
+  assert.match(deployLocalScript, /BASE_URL/);
+  assert.match(deployLocalScript, /require_cmd curl/);
+  assert.match(deployLocalScript, /chat\/completions/);
+  assert.match(deployLocalScript, /scripts\/deploy-edgespark\.sh/);
+  assert.doesNotMatch(deployLocalScript, /1346792580a/);
+  assert.doesNotMatch(deployLocalScript, /CLIENT_API_KEY=["'][^"$]/);
+  assert.match(deployNotes, /scripts\/deploy-local\.sh/);
 });

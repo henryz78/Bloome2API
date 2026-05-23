@@ -172,6 +172,30 @@ bloome secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '
 
 最后重新执行 `DEPLOY.md` 的公网验收。
 
+### 本地 Agent 快捷部署
+
+可以用 `scripts/deploy-local.sh` 封装 `bloome secret call`。这个脚本不会生成或硬编码 `CLIENT_API_KEY`，必须由用户明确提供。
+
+```bash
+export EDGESPARK_SECRET_NAME="EDGESPARK_API_KEY__<ALIAS>__<SUFFIX>"
+export RESON_LLM_API_KEY="$RESON_LLM_API_KEY"
+export CLIENT_API_KEY="<用户给的客户端密码>"
+
+./scripts/deploy-local.sh <alias>
+```
+
+热更新：
+
+```bash
+HOT_DEPLOY_ONLY=1 ./scripts/deploy-local.sh <alias>
+```
+
+如果已知公网地址，可以让脚本在部署后自动跑 `/health` 和一个短 `chat/completions`：
+
+```bash
+BASE_URL="https://<域名>.edgespark.app/api/public/v1" ./scripts/deploy-local.sh <alias>
+```
+
 ---
 
 ## 8. CORS
