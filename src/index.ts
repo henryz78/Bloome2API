@@ -175,6 +175,10 @@ function classifyInternalGatewayStatus(status: number, body: any): { status: num
   return classifyUpstreamStatus(status);
 }
 
+function isUpstreamNotSupportedStatus(status: number): boolean {
+  return status === 400 || status === 404 || status === 405 || status === 501;
+}
+
 function openAIEventError(c: Context, status: number, type?: string, detail?: any): any {
   const meta = publicErrorMeta(status, type);
   const error: any = { message: meta.message, type: meta.type };
@@ -1931,7 +1935,7 @@ app.post(`${API_PREFIX}/messages/count_tokens`, async (c) => {
   }
   const normalized = normalizeAnthropicNativeRequest(c, body);
   if (!normalized) {
-    return anthropicJsonError(c, 400, "invalid_request_error", { reason: "model is not Anthropic-compatible", model: body?.model });
+    return anthropicJsonError(c, 501, "not_supported_error", { reason: "token counting is only available for Anthropic-compatible models", model: body?.model });
   }
   const countBody = { ...normalized.request };
   delete countBody.stream;
@@ -1951,7 +1955,7 @@ app.post(`${API_PREFIX}/messages/count_tokens`, async (c) => {
       upstreamStatus: resp.status,
       body: upstream,
     });
-    if (resp.status === 404 || resp.status === 405 || resp.status === 501) {
+    if (isUpstreamNotSupportedStatus(resp.status)) {
       return anthropicJsonError(c, 501, "not_supported_error", upstream);
     }
     const mapped = classifyUpstreamStatus(resp.status);
@@ -2065,7 +2069,7 @@ app.post(`${API_PREFIX}/responses/input_tokens`, async (c) => {
       upstreamStatus: resp.status,
       body: upstream,
     });
-    if (resp.status === 404 || resp.status === 405 || resp.status === 501) {
+    if (isUpstreamNotSupportedStatus(resp.status)) {
       return jsonError(c, 501, "not_supported_error", upstream);
     }
     const mapped = classifyUpstreamStatus(resp.status);

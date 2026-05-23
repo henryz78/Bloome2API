@@ -56,3 +56,10 @@ test("Responses internal errors keep the public safe-error policy", () => {
   assert.match(source, /openAIEventError/);
   assert.doesNotMatch(source, /return c\.json\(upstream \|\|/);
 });
+
+test("token count unsupported cases map to not_supported_error", () => {
+  assert.match(source, /function isUpstreamNotSupportedStatus/);
+  assert.match(source, /status === 400/);
+  assert.match(source, /token counting is only available for Anthropic-compatible models/);
+  assert.match(source, /return anthropicJsonError\(c, 501, "not_supported_error"/);
+});
