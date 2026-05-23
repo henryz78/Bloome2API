@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+const deployScript = readFileSync(new URL("../scripts/deploy-edgespark.sh", import.meta.url), "utf8");
 
 test("public v1 exposes Anthropic Messages and OpenAI Responses compatibility routes", () => {
   assert.match(source, /API_PREFIX}\/messages`/);
@@ -27,8 +28,18 @@ test("static Responses routes are registered before dynamic response id routes",
 });
 
 test("CORS allows Anthropic SDK headers", () => {
+  assert.match(source, /Access-Control-Allow-Origin", "\*"/);
   assert.match(source, /anthropic-version/);
   assert.match(source, /anthropic-beta/);
+  assert.match(source, /x-client-request-id/);
+  assert.match(source, /Access-Control-Expose-Headers/);
+});
+
+test("health probes rotate across available OpenAI-compatible models", () => {
+  assert.match(source, /HEALTH_CHECK_MODELS/);
+  assert.match(source, /Math\.random/);
+  assert.doesNotMatch(source, /model: "kimi-k2\.6"/);
+  assert.match(source, /healthModel/);
 });
 
 test("translated Chat Completions handle developer messages and stream usage", () => {
@@ -114,4 +125,14 @@ test("model-not-found classification avoids broad unrelated text matches", () =>
 test("translated unsupported parameters return unsupported_error", () => {
   assert.match(source, /"unsupported_error", \{ unsupported: \["functions", "function_call"\] \}/);
   assert.match(source, /"unsupported_error", \{ unsupported: unsupportedReasons \}/);
+});
+
+test("deploy script supports hot deploy without var sync or pull", () => {
+  assert.match(deployScript, /HOT_DEPLOY_ONLY/);
+  assert.match(deployScript, /SKIP_VAR_SYNC/);
+  assert.match(deployScript, /SKIP_PULL/);
+  assert.match(deployScript, /if \[\[ "\$\{SKIP_NPM_INSTALL:-0\}" != "1" \]\]; then\s+require_cmd npm/s);
+  assert.match(deployScript, /if \[\[ "\$\{SKIP_VAR_SYNC:-0\}" != "1" \]\]/);
+  assert.match(deployScript, /: "\$\{BLOOME_API_KEY:\?Missing BLOOME_API_KEY\}"/);
+  assert.match(deployScript, /if \[\[ "\$\{SKIP_PULL:-0\}" != "1" \]\]/);
 });

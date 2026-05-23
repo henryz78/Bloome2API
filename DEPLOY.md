@@ -124,6 +124,18 @@ bloome secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '
 
 脚本会自动同步 `src/index.ts`、注入 EdgeSpark vars、安装 server 依赖并执行 `edgespark deploy`。
 
+如果刚执行过第 4 节的 `edgespark pull` smoke test，可以跳过脚本内的重复 pull：
+
+```bash
+SKIP_PULL=1 ./scripts/deploy-edgespark.sh <alias>
+```
+
+只改源码且不需要重新同步变量 / pull generated types 时，可以用热更新模式：
+
+```bash
+HOT_DEPLOY_ONLY=1 ./scripts/deploy-edgespark.sh <alias>
+```
+
 ---
 
 ## 6. 公网验收

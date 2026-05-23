@@ -356,11 +356,25 @@ app.use(`${API_PREFIX}/*`, async (c, next) => {
 
 
 const BLOOME_LLM_BASE = "https://stream.bloome.im/api/llm/proxy/reson";
+const HEALTH_CHECK_MODELS = [
+  "kimi-k2.6",
+  "glm-5.1",
+  "mimo-v2-pro",
+  "mimo-v2-omni",
+  "deepseek-v4-pro",
+  "deepseek-v4-flash",
+  "deepseek-v3-2",
+] as const;
+
+function pickHealthCheckModel(): string {
+  return HEALTH_CHECK_MODELS[Math.floor(Math.random() * HEALTH_CHECK_MODELS.length)] || "kimi-k2.6";
+}
 
 async function checkUpstreamHealth(c: Context): Promise<any> {
+  const healthModel = pickHealthCheckModel();
   const apiKey = getEnv(c, "BLOOME_API_KEY");
   if (!apiKey) {
-    return { ok: false, status: 500, latencyMs: 0, model: "kimi-k2.6", hasChoices: false, reason: "server_error" };
+    return { ok: false, status: 500, latencyMs: 0, model: healthModel, hasChoices: false, reason: "server_error" };
   }
 
   const controller = new AbortController();
@@ -375,7 +389,7 @@ async function checkUpstreamHealth(c: Context): Promise<any> {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "kimi-k2.6",
+        model: healthModel,
         messages: [{ role: "user", content: "hi" }],
         max_tokens: 1,
       }),
@@ -399,7 +413,7 @@ async function checkUpstreamHealth(c: Context): Promise<any> {
       ok,
       status: ok ? 200 : 503,
       latencyMs,
-      model: "kimi-k2.6",
+      model: healthModel,
       hasChoices,
       reason,
     };
@@ -413,7 +427,7 @@ async function checkUpstreamHealth(c: Context): Promise<any> {
       ok: false,
       status: 503,
       latencyMs: Date.now() - startedAt,
-      model: "kimi-k2.6",
+      model: healthModel,
       hasChoices: false,
       reason,
     };

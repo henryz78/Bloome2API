@@ -161,22 +161,25 @@ bloome edgespark project verify <alias>
 bloome secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '
   export EDGESPARK_API_KEY="$EDGESPARK_API_KEY__<ALIAS>__<SUFFIX>";
   export EDGESPARK_PROJECT_ENVIRONMENT=production;
-  PROJECT_DIR="${EDGESPARK_PROJECT_DIR:-}";
-  if [ -z "$PROJECT_DIR" ]; then
-    for candidate in "edgespark/<alias>" "../edgespark/<alias>"; do
-      if [ -f "$candidate/edgespark.toml" ]; then PROJECT_DIR="$candidate"; break; fi;
-    done;
-  fi;
-  cd "${PROJECT_DIR:-edgespark/<alias>}" && edgespark pull
+  HOT_DEPLOY_ONLY=1 ./scripts/deploy-edgespark.sh <alias>
 '
 ```
 
-```bash
-bloome secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '
-  export EDGESPARK_API_KEY="$EDGESPARK_API_KEY__<ALIAS>__<SUFFIX>";
-  export EDGESPARK_PROJECT_ENVIRONMENT=production;
-  ./scripts/deploy-edgespark.sh <alias>
-'
-```
+`HOT_DEPLOY_ONLY=1` 会跳过 `edgespark var set`、`edgespark pull` 和 `npm install`，只同步 `src/index.ts` 到已有 scaffold 并执行 `edgespark deploy`。
+
+如果改了环境变量、EdgeSpark 生成类型、依赖或 scaffold 结构，使用完整部署模式，不要加 `HOT_DEPLOY_ONLY=1`。
 
 最后重新执行 `DEPLOY.md` 的公网验收。
+
+---
+
+## 8. CORS
+
+公开 API 已显式返回：
+
+- `Access-Control-Allow-Origin: *`
+- `Access-Control-Allow-Headers: Authorization, Content-Type, x-api-key, anthropic-version, anthropic-beta, x-client-request-id`
+- `Access-Control-Allow-Methods: GET, POST, OPTIONS`
+- `Access-Control-Expose-Headers: x-request-id, request-id`
+
+浏览器端直连时不需要额外配置 CORS。若后续要限制来源域名，再改 `src/index.ts` 的 CORS header。

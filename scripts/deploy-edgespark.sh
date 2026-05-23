@@ -3,6 +3,11 @@ set -euo pipefail
 
 ALIAS="${1:-gateway}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ "${HOT_DEPLOY_ONLY:-0}" == "1" ]]; then
+  export SKIP_VAR_SYNC=1
+  export SKIP_PULL=1
+  export SKIP_NPM_INSTALL="${SKIP_NPM_INSTALL:-1}"
+fi
 PROJECT_DIR="${EDGESPARK_PROJECT_DIR:-}"
 if [[ -z "$PROJECT_DIR" ]]; then
   for candidate in "$ROOT_DIR/edgespark/$ALIAS" "$ROOT_DIR/../edgespark/$ALIAS"; do
@@ -26,12 +31,16 @@ require_cmd() {
 }
 
 require_cmd edgespark
-require_cmd npm
 require_cmd python3
 
 : "${EDGESPARK_API_KEY:?Missing EDGESPARK_API_KEY}"
-: "${BLOOME_API_KEY:?Missing BLOOME_API_KEY}"
-: "${CLIENT_API_KEY:?Missing CLIENT_API_KEY}"
+if [[ "${SKIP_VAR_SYNC:-0}" != "1" ]]; then
+  : "${BLOOME_API_KEY:?Missing BLOOME_API_KEY}"
+  : "${CLIENT_API_KEY:?Missing CLIENT_API_KEY}"
+fi
+if [[ "${SKIP_NPM_INSTALL:-0}" != "1" ]]; then
+  require_cmd npm
+fi
 
 export EDGESPARK_PROJECT_ENVIRONMENT="${EDGESPARK_PROJECT_ENVIRONMENT:-production}"
 
@@ -59,21 +68,25 @@ if [[ ! -f "$TARGET_RUNTIME" ]]; then
   exit 1
 fi
 
-echo "==> Syncing runtime vars"
-runtime_vars=(
-  "BLOOME_API_KEY=${BLOOME_API_KEY}"
-  "CLIENT_API_KEY=${CLIENT_API_KEY}"
-)
-if [[ -n "${ANTHROPIC_DEFAULT_MAX_TOKENS:-}" ]]; then
-  runtime_vars+=("ANTHROPIC_DEFAULT_MAX_TOKENS=${ANTHROPIC_DEFAULT_MAX_TOKENS}")
+if [[ "${SKIP_VAR_SYNC:-0}" != "1" ]]; then
+  echo "==> Syncing runtime vars"
+  runtime_vars=(
+    "BLOOME_API_KEY=${BLOOME_API_KEY}"
+    "CLIENT_API_KEY=${CLIENT_API_KEY}"
+  )
+  if [[ -n "${ANTHROPIC_DEFAULT_MAX_TOKENS:-}" ]]; then
+    runtime_vars+=("ANTHROPIC_DEFAULT_MAX_TOKENS=${ANTHROPIC_DEFAULT_MAX_TOKENS}")
+  fi
+  if [[ -n "${GEMINI_DEFAULT_MAX_TOKENS:-}" ]]; then
+    runtime_vars+=("GEMINI_DEFAULT_MAX_TOKENS=${GEMINI_DEFAULT_MAX_TOKENS}")
+  fi
+  if [[ -n "${BLOOME2API_DEV_MODE:-}" ]]; then
+    runtime_vars+=("BLOOME2API_DEV_MODE=${BLOOME2API_DEV_MODE}")
+  fi
+  (cd "$PROJECT_DIR" && edgespark var set "${runtime_vars[@]}")
+else
+  echo "==> Skipping runtime vars sync"
 fi
-if [[ -n "${GEMINI_DEFAULT_MAX_TOKENS:-}" ]]; then
-  runtime_vars+=("GEMINI_DEFAULT_MAX_TOKENS=${GEMINI_DEFAULT_MAX_TOKENS}")
-fi
-if [[ -n "${BLOOME2API_DEV_MODE:-}" ]]; then
-  runtime_vars+=("BLOOME2API_DEV_MODE=${BLOOME2API_DEV_MODE}")
-fi
-(cd "$PROJECT_DIR" && edgespark var set "${runtime_vars[@]}")
 
 echo "==> Syncing gateway code into EdgeSpark scaffold"
 cp "$SOURCE_SRC" "$TARGET_SRC"
@@ -130,11 +143,19 @@ else:
 p.write_text(text)
 PY
 
-echo "==> Pulling generated types"
-(cd "$PROJECT_DIR" && edgespark pull)
+if [[ "${SKIP_PULL:-0}" != "1" ]]; then
+  echo "==> Pulling generated types"
+  (cd "$PROJECT_DIR" && edgespark pull)
+else
+  echo "==> Skipping generated types pull"
+fi
 
-echo "==> Installing server deps"
-(cd "$SERVER_DIR" && npm install)
+if [[ "${SKIP_NPM_INSTALL:-0}" != "1" ]]; then
+  echo "==> Installing server deps"
+  (cd "$SERVER_DIR" && npm install)
+else
+  echo "==> Skipping server deps install"
+fi
 
 echo "==> Deploying"
 (cd "$PROJECT_DIR" && edgespark deploy)
