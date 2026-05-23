@@ -6,7 +6,9 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "start": "bun run src/index.ts"
+    "start": "bun run src/index.ts",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --experimental-strip-types --check src/index.ts"
   },
   "dependencies": {
     "hono": "^4.0.0"

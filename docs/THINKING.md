@@ -259,10 +259,14 @@ thinkingConfig: {
 
 ### OpenAI Responses API
 
-如果未来引入 GPT-5 reasoning summary：
+当前已经加入 `/responses` 最小无状态兼容层：
 
-- reasoning summary → `reasoning_content`
-- message text → `content`
+- `input` / `instructions` 会转换到内部 Chat Completions 请求
+- Chat 响应正文会映射回 `output[].content[].type === "output_text"`
+- Chat 响应里的 `reasoning_content` 会映射到 Responses 输出里的 `reasoning` item summary
+- 该路径不持久化 `response_id` / conversation，不能伪装官方平台状态能力
+
+如果未来需要更完整的 GPT-5 reasoning summary 和 stateful Responses 行为，需要单独引入持久化层。
 
 ## 流式兼容
 

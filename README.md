@@ -12,6 +12,8 @@
 ## 特性
 
 - OpenAI Chat Completions 兼容接口
+- OpenAI Responses API 最小无状态兼容层
+- Anthropic Messages API 兼容接口
 - 内置多模型路由与协议转换
 - 支持 `tools` / `tool_calls`
 - 支持 `-thinking` / `reasoning_content` 兼容
@@ -28,6 +30,18 @@
 - `GET /health`
 - `GET /models`
 - `POST /chat/completions`
+- `POST /responses`
+- `POST /responses/compact`
+- `POST /responses/input_tokens`
+- `POST /messages`
+- `POST /messages/count_tokens`
+
+说明：
+
+- `/responses` 是无状态兼容层，不持久化 `response_id` / conversation；继续对话需要客户端传完整上下文。
+- `/responses/compact` 返回的 compaction item 可被本项目后续请求识别，但不是 OpenAI 官方平台加密格式。
+- `/responses/input_tokens` 当前仅对 Anthropic 兼容模型转发真实上游 token count；其他协议族会返回 `not_supported_error`。
+- `/messages` 和 `/messages/count_tokens` 保持 Anthropic 原生请求/响应结构，适合 Anthropic SDK 兼容接入。
 
 ---
 
