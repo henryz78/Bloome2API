@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 
 const source = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
 const deployScript = readFileSync(new URL("../scripts/deploy-edgespark.sh", import.meta.url), "utf8");
+const deployDoc = readFileSync(new URL("../DEPLOY.md", import.meta.url), "utf8");
 
 test("public v1 exposes Anthropic Messages and OpenAI Responses compatibility routes", () => {
   assert.match(source, /API_PREFIX}\/messages`/);
@@ -135,4 +136,14 @@ test("deploy script supports hot deploy without var sync or pull", () => {
   assert.match(deployScript, /if \[\[ "\$\{SKIP_VAR_SYNC:-0\}" != "1" \]\]/);
   assert.match(deployScript, /: "\$\{BLOOME_API_KEY:\?Missing BLOOME_API_KEY\}"/);
   assert.match(deployScript, /if \[\[ "\$\{SKIP_PULL:-0\}" != "1" \]\]/);
+});
+
+test("deploy docs require user-provided client key and copyable success report", () => {
+  assert.match(deployDoc, /CLIENT_API_KEY 必须由用户提供/);
+  assert.match(deployDoc, /默认部署目标是公网 EdgeSpark 地址/);
+  assert.match(deployDoc, /Base URL\s+```text\s+https:\/\/<域名>\.edgespark\.app\/api\/public\/v1\s+```/s);
+  assert.match(deployDoc, /API Key\s+```text\s+<CLIENT_API_KEY>\s+```/s);
+  assert.doesNotMatch(deployDoc, /Bloome2API 部署成功/);
+  assert.match(deployDoc, /不要替用户随机生成/);
+  assert.doesNotMatch(deployDoc, /openssl rand|uuidgen|pwgen|randomBytes/i);
 });

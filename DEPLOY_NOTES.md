@@ -78,6 +78,7 @@ bloome secret call EDGESPARK_API_KEY__GATEWAY_20260510__123CABFF -- bash -c '
 - 不要把任何 API key 写进仓库文件、源码、脚本或 `edgespark.toml`
 - 不要截断读取 `BLOOME_API_KEY`
 - 不要裸跑 `npx edgespark var set`，用 `bloome secret call`
+- CLIENT_API_KEY 必须问用户要，不要替用户随机生成
 
 key 来源：
 

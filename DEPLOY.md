@@ -8,6 +8,9 @@
 
 确认 Bun 可用，并准备两个 key：
 
+- `BLOOME_API_KEY` 来自 Bloome / Reson LLM key
+- CLIENT_API_KEY 必须由用户提供；不要替用户随机生成，也不要写进仓库
+
 ```bash
 bun --version
 bun install
@@ -16,6 +19,8 @@ echo $RESON_LLM_API_KEY
 export BLOOME_API_KEY="$RESON_LLM_API_KEY"
 export CLIENT_API_KEY="<用户给的客户端密码>"
 ```
+
+默认部署目标是公网 EdgeSpark 地址；部署完成后需要给用户可直接复制的公网 Base URL。
 
 如果 Bun 不可用，或遇到 `unzip` / Node 版本 / 权限问题，看 `DEPLOY_NOTES.md` 第 1 节。
 
@@ -152,8 +157,6 @@ export BASE_URL="https://<域名>.edgespark.app/api/public/v1"
 ## 7. 汇报给用户
 
 成功时只给可复制配置：
-
-**Bloome2API 部署成功**
 
 Base URL
 ```text
