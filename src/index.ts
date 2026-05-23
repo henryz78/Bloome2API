@@ -1482,16 +1482,19 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   const gptThinkingCfg = getGPTThinkingConfig(body.model);
   // gpt-5.5 specifically rejects reasoning_effort + tools combo in /v1/chat/completions
   // (gpt-5.4 / 5.4-mini and other models accept this combo fine, no special-casing needed there).
+  // Narrow check: only affect when actual function tools are registered, not just tool_choice sentinel
+  // or empty tools array (some SDKs always include these fields).
   const isGpt55Thinking = body.model === "gpt-5.5-thinking";
-  const skipReasoningEffortInjection = isGpt55Thinking && hasToolUse(body);
+  const hasRealTools = Array.isArray(body.tools) && body.tools.length > 0;
+  const skipReasoningEffortInjection = isGpt55Thinking && hasRealTools;
   if (gptThinkingCfg.reasoningEffort && body.reasoning_effort === undefined && !skipReasoningEffortInjection) {
     body.reasoning_effort = gptThinkingCfg.reasoningEffort;
   }
   if (gptThinkingCfg.upstreamModel !== body.model) {
     body.model = gptThinkingCfg.upstreamModel;
   }
-  // Even when reasoning_effort came from the client (not injected), strip it for gpt-5.5 + tools.
-  if (body.reasoning_effort !== undefined && hasToolUse(body) && String(body.model).toLowerCase() === "gpt-5.5") {
+  // Even when reasoning_effort came from the client (not injected), strip it for gpt-5.5 + real tools.
+  if (body.reasoning_effort !== undefined && hasRealTools && String(body.model).toLowerCase() === "gpt-5.5") {
     delete body.reasoning_effort;
   }
   maybeInjectOpenAIPromptCacheKey(body);
