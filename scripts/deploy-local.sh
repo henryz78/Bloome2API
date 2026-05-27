@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ALIAS="${1:-${EDGESPARK_ALIAS:-gateway}}"
+ALIAS="${1:-${EDGESPARK_ALIAS:-newapi}}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY_SCRIPT="$ROOT_DIR/scripts/deploy-edgespark.sh"
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ALIAS="${1:-gateway}"
+ALIAS="${1:-newapi}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 if [[ "${HOT_DEPLOY_ONLY:-0}" == "1" ]]; then
   export SKIP_VAR_SYNC=1
@@ -91,7 +91,7 @@ else
   echo "==> Skipping runtime vars sync"
 fi
 
-echo "==> Syncing gateway code into EdgeSpark scaffold"
+echo "==> Syncing NewAPI code into EdgeSpark scaffold"
 cp "$SOURCE_SRC" "$TARGET_SRC"
 
 python3 - <<'PY' "$TARGET_SRC"

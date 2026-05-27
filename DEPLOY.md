@@ -8,7 +8,7 @@
 
 确认 Bun 可用，并准备两个 key：
 
-- `PROVIDER_API_KEY` 来自上游模型 provider key
+- `PROVIDER_API_KEY` 来自上游聚合模型 provider key
 - CLIENT_API_KEY 必须由用户提供；不要替用户随机生成，也不要写进仓库
 
 ```bash
@@ -74,7 +74,7 @@ curl -X POST "$BASE_URL/chat/completions" \
 - 不带 key 的 `models` 返回 401
 - `chat/completions` 返回正常 JSON，且有 `choices`
 
-如果返回 `Model alias not found`，先确认 provider 侧已启用对应模型 alias，再重试。
+如果返回 `Model alias not found`，先确认上游聚合侧已启用对应模型 alias，再重试。
 
 ---
 
@@ -83,7 +83,7 @@ curl -X POST "$BASE_URL/chat/completions" \
 优先 fresh alias：
 
 ```bash
-export ALIAS="gateway-$(date +%Y%m%d)"
+export ALIAS="newapi-$(date +%Y%m%d)"
 <cloud-cli> edgespark project create --alias "$ALIAS"
 ```
 

@@ -1,6 +1,6 @@
 # ERRORS
 
-Model Gateway 的公开错误响应默认采用安全模式：返回稳定的错误分类和 `request_id`，不暴露原始上游错误细节。只有设置 `APP_DEV_MODE=true` 时，响应里才会额外包含 `error.detail`，用于排查。
+NewAPI 的公开错误响应默认采用安全模式：返回稳定的错误分类和 `request_id`，不暴露原始上游错误细节。只有设置 `APP_DEV_MODE=true` 时，响应里才会额外包含 `error.detail`，用于排查。
 
 ## 响应结构
 

@@ -1,7 +1,7 @@
 {
-  "name": "model-gateway",
+  "name": "newapi",
   "version": "1.0.0",
-  "description": "OpenAI-compatible model API gateway with multi-protocol request translation and sanitized public errors.",
+  "description": "API gateway aggregation relay with OpenAI-compatible interfaces, protocol translation, and sanitized public errors.",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

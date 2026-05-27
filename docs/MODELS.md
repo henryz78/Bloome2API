@@ -1,9 +1,9 @@
 # MODELS
 
-这份文档记录当前 Model Gateway 中已支持的模型，并把三层名字分开说明：
+这份文档记录当前 NewAPI 中已支持的模型，并把三层名字分开说明：
 
 - **展示名**：前端 / 平台里看到的自然名称
-- **公开调用名（alias）**：Model Gateway 对外要求用户填写的 `model`
+- **公开调用名（alias）**：NewAPI 对外要求用户填写的 `model`
 - **实际上游模型**：provider 上游最终打到的 alias / modelVersion
 
 ## 字段说明

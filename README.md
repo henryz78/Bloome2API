@@ -1,11 +1,11 @@
-# Model Gateway
+# NewAPI
 
-一个中性的模型 API 网关，用统一的公开接口转发多模型请求。
+一个 API 网关聚合中转站，对外提供统一兼容接口，对内聚合和转发多模型请求。
 
 适合这些场景：
-- 让支持 OpenAI API 的客户端接入统一网关
-- 用统一接口调用多个模型供应商
-- 在 EdgeSpark 上快速部署自己的 API 入口
+- 让支持 OpenAI API 的客户端接入统一中转站
+- 用统一接口聚合和转发多个模型供应商
+- 在 EdgeSpark 上快速部署自己的 API 网关入口
 
 ---
 
@@ -125,4 +125,4 @@ curl -X POST http://localhost:3000/api/public/v1/chat/completions \
 
 ## 一句话总结
 
-> Model Gateway 是一个统一模型 API 网关。
+> NewAPI 是一个 API 网关聚合中转站。

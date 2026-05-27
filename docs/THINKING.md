@@ -1,6 +1,6 @@
 # THINKING
 
-这份文档定义 Model Gateway 中“思考模式（thinking / reasoning）”的设计原则、模型命名约定，以及不同上游协议的兼容方案。
+这份文档定义 NewAPI 中“思考模式（thinking / reasoning）”的设计原则、模型命名约定，以及不同上游协议的兼容方案。
 
 ## 目标
 

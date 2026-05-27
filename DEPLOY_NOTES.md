@@ -65,7 +65,7 @@ Agent 环境可能只有一个云端 CLI 命令：
 <cloud-cli> secret call EDGESPARK_API_KEY__GATEWAY_20260510__123CABFF -- bash -c '
   export EDGESPARK_API_KEY="$EDGESPARK_API_KEY__GATEWAY_20260510__123CABFF";
   export EDGESPARK_PROJECT_ENVIRONMENT=production;
-  cd edgespark/gateway-20260510 && edgespark pull
+  cd edgespark/newapi-20260510 && edgespark pull
 '
 ```
 
@@ -109,7 +109,7 @@ export APP_DEV_MODE=true
 
 ### `Model alias not found`
 
-先确认 provider 侧已启用对应模型。模型名必须精确：
+先确认上游聚合侧已启用对应模型。模型名必须精确：
 
 - `claude-opus-4-7` 不是 `claude-opus-4.7`
 - `gpt-5.4` 不是 `gpt-5-4`
