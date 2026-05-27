@@ -166,6 +166,8 @@ export BASE_URL="https://<域名>.edgespark.app/api/public/v1"
 
 成功时只给可复制配置：
 
+`Base URL` 和 `API Key` 必须各自单独放在代码块里，保证用户可以直接复制。
+
 Base URL
 ```text
 https://<域名>.edgespark.app/api/public/v1
@@ -174,13 +176,6 @@ https://<域名>.edgespark.app/api/public/v1
 API Key
 ```text
 <CLIENT_API_KEY>
-```
-
-环境变量对比值
-```text
-CLIENT_API_KEY=<CLIENT_API_KEY>
-PROVIDER_API_KEY=<当前部署使用的 PROVIDER_API_KEY>
-APP_DEV_MODE=<未设置或当前值>
 ```
 
 当前是默认模式：对外只返回统一错误标志和 `request_id`，详细错误请看平台日志。
