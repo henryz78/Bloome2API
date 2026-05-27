@@ -80,10 +80,18 @@ curl -X POST "$BASE_URL/chat/completions" \
 
 ## 3. 创建 EdgeSpark 项目
 
+项目 id / alias 统一用：`项目名_日期`
+
+例如：
+
+```text
+newapi_20260526
+```
+
 优先 fresh alias：
 
 ```bash
-export ALIAS="newapi-$(date +%Y%m%d)"
+export ALIAS="newapi_$(date +%Y%m%d)"
 <cloud-cli> edgespark project create --alias "$ALIAS"
 ```
 
@@ -166,6 +174,13 @@ https://<域名>.edgespark.app/api/public/v1
 API Key
 ```text
 <CLIENT_API_KEY>
+```
+
+环境变量对比值
+```text
+CLIENT_API_KEY=<CLIENT_API_KEY>
+PROVIDER_API_KEY=<当前部署使用的 PROVIDER_API_KEY>
+APP_DEV_MODE=<未设置或当前值>
 ```
 
 当前是默认模式：对外只返回统一错误标志和 `request_id`，详细错误请看平台日志。

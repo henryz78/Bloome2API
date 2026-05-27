@@ -157,8 +157,14 @@ test("deploy script supports hot deploy without var sync or pull", () => {
 test("deploy docs require user-provided client key and copyable success report", () => {
   assert.match(deployDoc, /CLIENT_API_KEY 必须由用户提供/);
   assert.match(deployDoc, /默认部署目标是公网 EdgeSpark 地址/);
+  assert.match(deployDoc, /项目名_日期/);
+  assert.match(deployDoc, /newapi_\$\(date \+%Y%m%d\)/);
   assert.match(deployDoc, /Base URL\s+```text\s+https:\/\/<域名>\.edgespark\.app\/api\/public\/v1\s+```/s);
   assert.match(deployDoc, /API Key\s+```text\s+<CLIENT_API_KEY>\s+```/s);
+  assert.match(deployDoc, /环境变量对比值/);
+  assert.match(deployDoc, /CLIENT_API_KEY=<CLIENT_API_KEY>/);
+  assert.match(deployDoc, /PROVIDER_API_KEY=<当前部署使用的 PROVIDER_API_KEY>/);
+  assert.match(deployDoc, /APP_DEV_MODE=<未设置或当前值>/);
   assert.doesNotMatch(deployDoc, /Bloome2API 部署成功/);
   assert.match(deployDoc, /不要替用户随机生成/);
   assert.doesNotMatch(deployDoc, /openssl rand|uuidgen|pwgen|randomBytes/i);
