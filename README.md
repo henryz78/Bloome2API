@@ -1,11 +1,11 @@
-# Bloome2API
+# Model Gateway
 
-一个把 **Bloome 内置 LLM 能力** 包装成 **OpenAI 兼容 API** 的轻量网关。
+一个中性的模型 API 网关，用统一的公开接口转发多模型请求。
 
 适合这些场景：
-- 让支持 OpenAI API 的客户端直接接入 Bloome
-- 用统一接口调用 Claude / GPT / Gemini / Kimi / GLM / DeepSeek / MiniMax
-- 在 EdgeSpark 上快速部署一个自己的 API 网关
+- 让支持 OpenAI API 的客户端接入统一网关
+- 用统一接口调用多个模型供应商
+- 在 EdgeSpark 上快速部署自己的 API 入口
 
 ---
 
@@ -50,7 +50,7 @@
 默认安全模式下，公开响应只返回稳定错误类型、错误码和 `request_id`，不暴露详细上游错误。需要排查时可临时设置：
 
 ```bash
-export BLOOME2API_DEV_MODE=true
+export APP_DEV_MODE=true
 ```
 
 常见错误类型：
@@ -79,7 +79,7 @@ export BLOOME2API_DEV_MODE=true
 
 ```bash
 bun install
-export BLOOME_API_KEY="你的 Bloome Key"
+export PROVIDER_API_KEY="你的上游 provider key"
 export CLIENT_API_KEY="你给客户端的 Key"
 bun start
 ```
@@ -125,4 +125,4 @@ curl -X POST http://localhost:3000/api/public/v1/chat/completions \
 
 ## 一句话总结
 
-> Bloome2API 是一个把 Bloome 模型能力转换成 OpenAI 兼容接口的轻量网关。
+> Model Gateway 是一个统一模型 API 网关。

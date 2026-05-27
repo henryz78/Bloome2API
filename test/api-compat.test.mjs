@@ -45,6 +45,18 @@ test("health probes rotate across available OpenAI-compatible models", () => {
   assert.match(source, /healthModel/);
 });
 
+test("public runtime surface is white-label", () => {
+  assert.match(source, /PROVIDER_API_KEY/);
+  assert.match(source, /APP_DEV_MODE/);
+  assert.match(source, /providerApiKey/);
+  assert.doesNotMatch(source, /BLOOME_API_KEY/);
+  assert.doesNotMatch(source, /BLOOME2API_DEV_MODE/);
+  assert.doesNotMatch(source, /bloomeApiKey/);
+  assert.doesNotMatch(source, /owned_by: "reson"/);
+  assert.doesNotMatch(source, /bloome2api\.compaction/);
+  assert.doesNotMatch(source, /`bloome-\$\{hashString/);
+});
+
 test("translated Chat Completions handle developer messages and stream usage", () => {
   assert.match(source, /m\.role === "developer"/);
   assert.match(source, /wantsStreamUsage/);
@@ -136,7 +148,9 @@ test("deploy script supports hot deploy without var sync or pull", () => {
   assert.match(deployScript, /SKIP_PULL/);
   assert.match(deployScript, /if \[\[ "\$\{SKIP_NPM_INSTALL:-0\}" != "1" \]\]; then\s+require_cmd npm/s);
   assert.match(deployScript, /if \[\[ "\$\{SKIP_VAR_SYNC:-0\}" != "1" \]\]/);
-  assert.match(deployScript, /: "\$\{BLOOME_API_KEY:\?Missing BLOOME_API_KEY\}"/);
+  assert.match(deployScript, /: "\$\{PROVIDER_API_KEY:\?Missing PROVIDER_API_KEY\}"/);
+  assert.doesNotMatch(deployScript, /BLOOME_API_KEY/);
+  assert.doesNotMatch(deployScript, /BLOOME2API_DEV_MODE/);
   assert.match(deployScript, /if \[\[ "\$\{SKIP_PULL:-0\}" != "1" \]\]/);
 });
 
@@ -150,20 +164,28 @@ test("deploy docs require user-provided client key and copyable success report",
   assert.doesNotMatch(deployDoc, /openssl rand|uuidgen|pwgen|randomBytes/i);
 });
 
+test("public docs use neutral product naming", () => {
+  assert.match(deployDoc, /PROVIDER_API_KEY/);
+  assert.match(deployDoc, /APP_DEV_MODE/);
+  assert.doesNotMatch(deployDoc, /BLOOME2API_DEV_MODE/);
+  assert.doesNotMatch(deployDoc, /Bloome2API 部署成功/);
+});
+
 test("local deploy wrapper keeps secrets explicit and supports optional verification", () => {
   assert.match(deployLocalScript, /EDGESPARK_SECRET_NAME/);
   assert.match(deployLocalScript, /RESON_LLM_API_KEY/);
   assert.match(deployLocalScript, /CLIENT_API_KEY/);
-  assert.match(deployLocalScript, /BLOOME_CMD/);
+  assert.match(deployLocalScript, /CLOUD_CMD/);
   assert.match(deployLocalScript, /command -v bloome/);
   assert.match(deployLocalScript, /command -v bloome-cli/);
-  assert.match(deployLocalScript, /bloome or bloome-cli not found/);
+  assert.match(deployLocalScript, /cloud CLI not found/);
   assert.match(deployLocalScript, /export EDGESPARK_SECRET_NAME/);
   assert.match(deployLocalScript, /HOT_DEPLOY_ONLY/);
   assert.match(deployLocalScript, /BASE_URL/);
   assert.match(deployLocalScript, /require_cmd curl/);
   assert.match(deployLocalScript, /chat\/completions/);
   assert.match(deployLocalScript, /scripts\/deploy-edgespark\.sh/);
+  assert.match(deployLocalScript, /export PROVIDER_API_KEY="\$RESON_LLM_API_KEY"/);
   assert.doesNotMatch(deployLocalScript, /require_cmd bloome/);
   assert.doesNotMatch(deployLocalScript, /1346792580a/);
   assert.doesNotMatch(deployLocalScript, /CLIENT_API_KEY=["'][^"$]/);

@@ -1,6 +1,6 @@
 # ERRORS
 
-Bloome2API 的公开错误响应默认采用安全模式：返回稳定的错误分类和 `request_id`，不暴露原始上游错误细节。只有设置 `BLOOME2API_DEV_MODE=true` 时，响应里才会额外包含 `error.detail`，用于排查。
+Model Gateway 的公开错误响应默认采用安全模式：返回稳定的错误分类和 `request_id`，不暴露原始上游错误细节。只有设置 `APP_DEV_MODE=true` 时，响应里才会额外包含 `error.detail`，用于排查。
 
 ## 响应结构
 
@@ -38,7 +38,7 @@ SSE 流式错误也会使用同一套 `error.type` / `error.code` / `request_id`
 | type | code | HTTP | 说明 |
 |---|---|---:|---|
 | `authentication_error` | `authentication_failed` | 401 | 客户端没有传有效 `Authorization` / `x-api-key`，或与 `CLIENT_API_KEY` 不匹配 |
-| `configuration_error` | `server_misconfigured` | 500 | 网关缺少必要环境变量，例如 `BLOOME_API_KEY` 或 `CLIENT_API_KEY` |
+| `configuration_error` | `server_misconfigured` | 500 | 网关缺少必要环境变量，例如 `PROVIDER_API_KEY` 或 `CLIENT_API_KEY` |
 | `invalid_request_error` | `invalid_request` | 400 | 请求 JSON、body、消息结构或必填字段不合法 |
 | `unsupported_error` | `unsupported_parameter` | 400 | endpoint 存在，但某个传入参数当前不支持 |
 | `not_supported_error` | `not_supported` | 501 | endpoint、模型族或能力整体不支持 |

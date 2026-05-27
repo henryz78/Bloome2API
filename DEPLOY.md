@@ -8,7 +8,7 @@
 
 确认 Bun 可用，并准备两个 key：
 
-- `BLOOME_API_KEY` 来自 Bloome / Reson LLM key
+- `PROVIDER_API_KEY` 来自上游模型 provider key
 - CLIENT_API_KEY 必须由用户提供；不要替用户随机生成，也不要写进仓库
 
 ```bash
@@ -16,7 +16,7 @@ bun --version
 bun install
 
 echo $RESON_LLM_API_KEY
-export BLOOME_API_KEY="$RESON_LLM_API_KEY"
+export PROVIDER_API_KEY="$RESON_LLM_API_KEY"
 export CLIENT_API_KEY="<用户给的客户端密码>"
 ```
 
@@ -69,12 +69,12 @@ curl -X POST "$BASE_URL/chat/completions" \
 
 通过标准：
 
-- `health` 里 `bloomeApiKey` 和 `clientApiKey` 都是 `true`
+- `health` 里 `providerApiKey` 和 `clientApiKey` 都是 `true`
 - 带 key 的 `models` 返回 200
 - 不带 key 的 `models` 返回 401
 - `chat/completions` 返回正常 JSON，且有 `choices`
 
-如果返回 `Model alias not found`，让用户先在 Bloome 里切一次 `kimi-k2.6` 再重试。
+如果返回 `Model alias not found`，先确认 provider 侧已启用对应模型 alias，再重试。
 
 ---
 
@@ -84,13 +84,13 @@ curl -X POST "$BASE_URL/chat/completions" \
 
 ```bash
 export ALIAS="gateway-$(date +%Y%m%d)"
-bloome edgespark project create --alias "$ALIAS"
+<cloud-cli> edgespark project create --alias "$ALIAS"
 ```
 
-如果当前环境只有 `bloome-cli` wrapper，用等价命令：
+如果当前环境只有备用 wrapper，用等价命令：
 
 ```bash
-bloome-cli edgespark project create --alias "$ALIAS"
+<cloud-cli-wrapper> edgespark project create --alias "$ALIAS"
 ```
 
 ---
@@ -100,7 +100,7 @@ bloome-cli edgespark project create --alias "$ALIAS"
 先确认 EdgeSpark scaffold 和认证可用：
 
 ```bash
-bloome secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '
+<cloud-cli> secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '
   export EDGESPARK_API_KEY="$EDGESPARK_API_KEY__<ALIAS>__<SUFFIX>";
   export EDGESPARK_PROJECT_ENVIRONMENT=production;
   PROJECT_DIR="${EDGESPARK_PROJECT_DIR:-}";
@@ -120,7 +120,7 @@ bloome secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '
 ## 5. 部署
 
 ```bash
-bloome secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '
+<cloud-cli> secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '
   export EDGESPARK_API_KEY="$EDGESPARK_API_KEY__<ALIAS>__<SUFFIX>";
   export EDGESPARK_PROJECT_ENVIRONMENT=production;
   ./scripts/deploy-edgespark.sh <alias>
@@ -146,7 +146,7 @@ HOT_DEPLOY_ONLY=1 ./scripts/deploy-edgespark.sh <alias>
 ## 6. 公网验收
 
 ```bash
-bloome edgespark project verify "$ALIAS"
+<cloud-cli> edgespark project verify "$ALIAS"
 export BASE_URL="https://<域名>.edgespark.app/api/public/v1"
 ```
 
@@ -170,6 +170,6 @@ API Key
 
 当前是默认模式：对外只返回统一错误标志和 `request_id`，详细错误请看平台日志。
 
-如果需要开启开发模式，请告诉我；开发模式会设置 `BLOOME2API_DEV_MODE=true`，接口响应会显示详细错误日志，排查结束后建议关闭。
+如果需要开启开发模式，请告诉我；开发模式会设置 `APP_DEV_MODE=true`，接口响应会显示详细错误日志，排查结束后建议关闭。
 
 失败时说明卡在哪一步：本地 smoke、create、pull、deploy、verify、health、models 或 chat。

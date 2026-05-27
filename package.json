@@ -1,7 +1,7 @@
 {
-  "name": "bloome2api",
+  "name": "model-gateway",
   "version": "1.0.0",
-  "description": "OpenAI-compatible API gateway for Bloome's built-in LLM provider. Auto-translates Claude requests to Anthropic format, fixes GPT-5.x parameter issues, and cleans non-standard upstream fields.",
+  "description": "OpenAI-compatible model API gateway with multi-protocol request translation and sanitized public errors.",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {

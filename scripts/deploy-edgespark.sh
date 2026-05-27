@@ -35,7 +35,7 @@ require_cmd python3
 
 : "${EDGESPARK_API_KEY:?Missing EDGESPARK_API_KEY}"
 if [[ "${SKIP_VAR_SYNC:-0}" != "1" ]]; then
-  : "${BLOOME_API_KEY:?Missing BLOOME_API_KEY}"
+  : "${PROVIDER_API_KEY:?Missing PROVIDER_API_KEY}"
   : "${CLIENT_API_KEY:?Missing CLIENT_API_KEY}"
 fi
 if [[ "${SKIP_NPM_INSTALL:-0}" != "1" ]]; then
@@ -51,7 +51,7 @@ fi
 
 if [[ ! -f "$PROJECT_DIR/edgespark.toml" ]]; then
   echo "Missing EdgeSpark scaffold: $PROJECT_DIR/edgespark.toml"
-  echo "Run: bloome edgespark project create --alias $ALIAS (or the equivalent bloome-cli wrapper in shell environments)"
+  echo "Run: <cloud-cli> edgespark project create --alias $ALIAS"
   echo "If the scaffold is outside this repo, set EDGESPARK_PROJECT_DIR=/absolute/path/to/edgespark/$ALIAS"
   exit 1
 fi
@@ -71,17 +71,20 @@ fi
 if [[ "${SKIP_VAR_SYNC:-0}" != "1" ]]; then
   echo "==> Syncing runtime vars"
   runtime_vars=(
-    "BLOOME_API_KEY=${BLOOME_API_KEY}"
+    "PROVIDER_API_KEY=${PROVIDER_API_KEY}"
     "CLIENT_API_KEY=${CLIENT_API_KEY}"
   )
+  if [[ -n "${PROVIDER_BASE_URL:-}" ]]; then
+    runtime_vars+=("PROVIDER_BASE_URL=${PROVIDER_BASE_URL}")
+  fi
   if [[ -n "${ANTHROPIC_DEFAULT_MAX_TOKENS:-}" ]]; then
     runtime_vars+=("ANTHROPIC_DEFAULT_MAX_TOKENS=${ANTHROPIC_DEFAULT_MAX_TOKENS}")
   fi
   if [[ -n "${GEMINI_DEFAULT_MAX_TOKENS:-}" ]]; then
     runtime_vars+=("GEMINI_DEFAULT_MAX_TOKENS=${GEMINI_DEFAULT_MAX_TOKENS}")
   fi
-  if [[ -n "${BLOOME2API_DEV_MODE:-}" ]]; then
-    runtime_vars+=("BLOOME2API_DEV_MODE=${BLOOME2API_DEV_MODE}")
+  if [[ -n "${APP_DEV_MODE:-}" ]]; then
+    runtime_vars+=("APP_DEV_MODE=${APP_DEV_MODE}")
   fi
   (cd "$PROJECT_DIR" && edgespark var set "${runtime_vars[@]}")
 else
@@ -135,7 +138,7 @@ import sys
 p = Path(sys.argv[1])
 text = p.read_text()
 old = 'export type VarKey = never;'
-new = 'export type VarKey =\n  | "BLOOME_API_KEY"\n  | "CLIENT_API_KEY"\n  | "ANTHROPIC_DEFAULT_MAX_TOKENS"\n  | "GEMINI_DEFAULT_MAX_TOKENS"\n  | "BLOOME2API_DEV_MODE";'
+new = 'export type VarKey =\n  | "PROVIDER_BASE_URL"\n  | "PROVIDER_API_KEY"\n  | "CLIENT_API_KEY"\n  | "ANTHROPIC_DEFAULT_MAX_TOKENS"\n  | "GEMINI_DEFAULT_MAX_TOKENS"\n  | "APP_DEV_MODE";'
 if old in text:
     text = text.replace(old, new)
 else:

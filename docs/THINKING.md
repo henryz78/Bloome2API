@@ -1,6 +1,6 @@
 # THINKING
 
-这份文档定义 Bloome2API 中“思考模式（thinking / reasoning）”的设计原则、模型命名约定，以及不同上游协议的兼容方案。
+这份文档定义 Model Gateway 中“思考模式（thinking / reasoning）”的设计原则、模型命名约定，以及不同上游协议的兼容方案。
 
 ## 目标
 
@@ -167,7 +167,7 @@ thinkingConfig: {
 
 因此 `claude-opus-4-7-thinking` 的最终实现应优先考虑：
 
-> 当前实测表明：即使显式传入 `display: "summarized"`，现阶段 Bloome 上游 / 当前 Bedrock 路由仍可能只返回正文、不返回可见 thinking summary。也就是说，代理侧已按官方推荐参数开启，但当前上游未必透传可见 summary。
+> 当前实测表明：即使显式传入 `display: "summarized"`，现阶段 provider 上游 / 当前 Bedrock 路由仍可能只返回正文、不返回可见 thinking summary。也就是说，代理侧已按官方推荐参数开启，但当前上游未必透传可见 summary。
 
 ```json
 {
@@ -287,14 +287,14 @@ thinkingConfig: {
 
 ### Gemini 流式
 
-已确认当前 Bloome 上游的 Gemini 路径只提供非流式行为。代理侧不要为了 Gemini 额外堆上游流式 parser 兼容逻辑，也不要恢复 `streamGenerateContent` 方向。
+已确认当前 provider 上游的 Gemini 路径只提供非流式行为。代理侧不要为了 Gemini 额外堆上游流式 parser 兼容逻辑，也不要恢复 `streamGenerateContent` 方向。
 
 当前实现对 Gemini 的 `stream: true` 采用代理层伪流式：
 
 - 上游仍调用非流式 `generateContent`
 - 代理先返回空的 assistant role chunk，让客户端进入 SSE 状态
 - 拿到完整上游结果后，再按 OpenAI SSE chunk 拆分 `content` / `reasoning_content` / `tool_calls`
-- 这不是 Bloome 上游真流式，不能降低长非流式回答的上游 timeout 风险
+- 这不是 provider 上游真流式，不能降低长非流式回答的上游 timeout 风险
 
 ### OpenAI / DeepSeek / Kimi / GLM 流式
 

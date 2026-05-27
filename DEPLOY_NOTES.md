@@ -46,23 +46,23 @@ arm64 或其它架构要换对应 zip 包名。
 
 ## 2. 认证陷阱
 
-### `bloome-cli` 不存在
+### 云端 CLI 不存在
 
-Agent 环境可能只有 `bloome`：
+Agent 环境可能只有一个云端 CLI 命令：
 
 ```bash
-bloome secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '...'
-bloome edgespark project create --alias <alias>
+<cloud-cli> secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '...'
+<cloud-cli> edgespark project create --alias <alias>
 ```
 
-有 `bloome-cli` wrapper 时用 `bloome-cli ...` 等价。
+有备用 wrapper 时用等价命令。
 
 ### `edgespark` 报 `Not authenticated`
 
 `secret call` 注入的是 `EDGESPARK_API_KEY__ALIAS__SUFFIX`，但 `edgespark` 读取 `EDGESPARK_API_KEY`。
 
 ```bash
-bloome secret call EDGESPARK_API_KEY__GATEWAY_20260510__123CABFF -- bash -c '
+<cloud-cli> secret call EDGESPARK_API_KEY__GATEWAY_20260510__123CABFF -- bash -c '
   export EDGESPARK_API_KEY="$EDGESPARK_API_KEY__GATEWAY_20260510__123CABFF";
   export EDGESPARK_PROJECT_ENVIRONMENT=production;
   cd edgespark/gateway-20260510 && edgespark pull
@@ -76,15 +76,15 @@ bloome secret call EDGESPARK_API_KEY__GATEWAY_20260510__123CABFF -- bash -c '
 ## 3. 密钥安全红线
 
 - 不要把任何 API key 写进仓库文件、源码、脚本或 `edgespark.toml`
-- 不要截断读取 `BLOOME_API_KEY`
-- 不要裸跑 `npx edgespark var set`，用 `bloome secret call`
+- 不要截断读取 `PROVIDER_API_KEY`
+- 不要裸跑 `npx edgespark var set`，用云端 secret call
 - CLIENT_API_KEY 必须问用户要，不要替用户随机生成
 
 key 来源：
 
 ```bash
 echo $RESON_LLM_API_KEY
-export BLOOME_API_KEY="$RESON_LLM_API_KEY"
+export PROVIDER_API_KEY="$RESON_LLM_API_KEY"
 export CLIENT_API_KEY="<用户给的客户端密码>"
 ```
 
@@ -97,7 +97,7 @@ export CLIENT_API_KEY="<用户给的客户端密码>"
 需要排查时可以临时开启开发模式：
 
 ```bash
-export BLOOME2API_DEV_MODE=true
+export APP_DEV_MODE=true
 ./scripts/deploy-edgespark.sh <alias>
 ```
 
@@ -109,7 +109,7 @@ export BLOOME2API_DEV_MODE=true
 
 ### `Model alias not found`
 
-用户先在 Bloome 里切到对应模型一次。模型名必须精确：
+先确认 provider 侧已启用对应模型。模型名必须精确：
 
 - `claude-opus-4-7` 不是 `claude-opus-4.7`
 - `gpt-5.4` 不是 `gpt-5-4`
@@ -122,7 +122,7 @@ export BLOOME2API_DEV_MODE=true
 
 检查 EdgeSpark vars：
 
-- `BLOOME_API_KEY`
+- `PROVIDER_API_KEY`
 - `CLIENT_API_KEY`
 
 然后重新跑部署脚本。
@@ -137,7 +137,7 @@ export BLOOME2API_DEV_MODE=true
 
 `scripts/deploy-edgespark.sh` 自动识别：
 
-- 仓库内：`Bloome2API/edgespark/<alias>`
+- 仓库内：`<repo>/edgespark/<alias>`
 - 仓库同级：`edgespark/<alias>`
 
 其它位置手动设置：
@@ -153,13 +153,13 @@ export EDGESPARK_PROJECT_DIR="/absolute/path/to/edgespark/<alias>"
 只改源码、模型、请求转换、SSE、reasoning、工具调用或运行时变量时，不需要重新 create。
 
 ```bash
-bloome edgespark project verify <alias>
+<cloud-cli> edgespark project verify <alias>
 ```
 
 如果出现 `verify 404` / `invalid bearer token` / `unhealthy`，换 fresh alias。
 
 ```bash
-bloome secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '
+<cloud-cli> secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '
   export EDGESPARK_API_KEY="$EDGESPARK_API_KEY__<ALIAS>__<SUFFIX>";
   export EDGESPARK_PROJECT_ENVIRONMENT=production;
   HOT_DEPLOY_ONLY=1 ./scripts/deploy-edgespark.sh <alias>
@@ -174,8 +174,8 @@ bloome secret call EDGESPARK_API_KEY__<ALIAS>__<SUFFIX> -- bash -c '
 
 ### 本地 Agent 快捷部署
 
-可以用 `scripts/deploy-local.sh` 封装 `bloome secret call`。这个脚本不会生成或硬编码 `CLIENT_API_KEY`，必须由用户明确提供。
-脚本会优先使用 `bloome`，找不到时 fallback 到 `bloome-cli`。
+可以用 `scripts/deploy-local.sh` 封装云端 secret call。这个脚本不会生成或硬编码 `CLIENT_API_KEY`，必须由用户明确提供。
+脚本会优先使用主 CLI，找不到时 fallback 到备用 CLI。
 
 ```bash
 export EDGESPARK_SECRET_NAME="EDGESPARK_API_KEY__<ALIAS>__<SUFFIX>"

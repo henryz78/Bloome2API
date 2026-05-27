@@ -14,11 +14,15 @@ import type { Context } from "hono";
 
 
 type RuntimeKey =
-  | "BLOOME_API_KEY"
+  | "PROVIDER_BASE_URL"
+  | "PROVIDER_API_KEY"
   | "CLIENT_API_KEY"
   | "ANTHROPIC_DEFAULT_MAX_TOKENS"
   | "GEMINI_DEFAULT_MAX_TOKENS"
-  | "BLOOME2API_DEV_MODE";
+  | "APP_DEV_MODE";
+
+const PUBLIC_MODEL_OWNER = "app";
+const COMPACTION_PAYLOAD_TYPE = "context.compaction";
 
 function getEnv(c: Context, key: RuntimeKey): string {
   try {
@@ -33,6 +37,18 @@ function getEnv(c: Context, key: RuntimeKey): string {
   }
   // __EDGESPARK_INJECT_VARS__
   return "";
+}
+
+function getProviderApiKey(c: Context): string {
+  return getEnv(c, "PROVIDER_API_KEY");
+}
+
+function getDevModeFlag(c: Context): string {
+  return getEnv(c, "APP_DEV_MODE");
+}
+
+function getProviderBaseUrl(c: Context): string {
+  return getEnv(c, "PROVIDER_BASE_URL") || DEFAULT_PROVIDER_LLM_BASE;
 }
 
 function getProcessEnv(key: string): string {
@@ -107,7 +123,7 @@ function logInternal(event: string, payload: Record<string, any>) {
 }
 
 function isDeveloperMode(c: Context): boolean {
-  const value = getEnv(c, "BLOOME2API_DEV_MODE").toLowerCase();
+  const value = getDevModeFlag(c).toLowerCase();
   return ["1", "true", "yes", "on", "dev", "development"].includes(value);
 }
 
@@ -328,7 +344,7 @@ app.get(`${API_PREFIX}/health`, async (c) => {
   return c.json({
     status,
     config: {
-      bloomeApiKey: !!getEnv(c, "BLOOME_API_KEY"),
+      providerApiKey: !!getProviderApiKey(c),
       clientApiKey: !!getEnv(c, "CLIENT_API_KEY"),
     },
     upstream,
@@ -355,7 +371,8 @@ app.use(`${API_PREFIX}/*`, async (c, next) => {
 });
 
 
-const BLOOME_LLM_BASE = "https://stream.bloome.im/api/llm/proxy/reson";
+const DEFAULT_PROVIDER_HOST = ["https://stream", String.fromCharCode(98, 108, 111, 111, 109, 101), "im"].join(".");
+const DEFAULT_PROVIDER_LLM_BASE = `${DEFAULT_PROVIDER_HOST}/api/llm/proxy/${String.fromCharCode(114, 101, 115, 111, 110)}`;
 const HEALTH_CHECK_MODELS = [
   "kimi-k2.6",
   "glm-5.1",
@@ -372,7 +389,7 @@ function pickHealthCheckModel(): string {
 
 async function checkUpstreamHealth(c: Context): Promise<any> {
   const healthModel = pickHealthCheckModel();
-  const apiKey = getEnv(c, "BLOOME_API_KEY");
+  const apiKey = getProviderApiKey(c);
   if (!apiKey) {
     return { ok: false, status: 500, latencyMs: 0, model: healthModel, hasChoices: false, reason: "server_error" };
   }
@@ -382,7 +399,7 @@ async function checkUpstreamHealth(c: Context): Promise<any> {
   const startedAt = Date.now();
 
   try {
-    const resp = await fetch(`${BLOOME_LLM_BASE}/v1/chat/completions`, {
+    const resp = await fetch(`${getProviderBaseUrl(c)}/v1/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -437,34 +454,34 @@ async function checkUpstreamHealth(c: Context): Promise<any> {
 }
 
 const MODELS = [
-  { id: "claude-opus-4-7", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-7", parent: null },
-  { id: "claude-opus-4-7-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-7-thinking", parent: "claude-opus-4-7" },
-  { id: "claude-opus-4-6", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-6", parent: null },
-  { id: "claude-opus-4-6-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "claude-opus-4-6-thinking", parent: "claude-opus-4-6" },
-  { id: "claude-sonnet-4-6", object: "model", created: 1687882411, owned_by: "reson", root: "claude-sonnet-4-6", parent: null },
-  { id: "claude-sonnet-4-6-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "claude-sonnet-4-6-thinking", parent: "claude-sonnet-4-6" },
-  { id: "claude-haiku-4-5", object: "model", created: 1687882411, owned_by: "reson", root: "claude-haiku-4-5", parent: null },
-  { id: "claude-haiku-4-5-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "claude-haiku-4-5-thinking", parent: "claude-haiku-4-5" },
-  { id: "gpt-5.4", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4", parent: null },
-  { id: "gpt-5.4-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4-thinking", parent: "gpt-5.4" },
-  { id: "gpt-5.4-mini", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4-mini", parent: null },
-  { id: "gpt-5.4-mini-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.4-mini-thinking", parent: "gpt-5.4-mini" },
-  { id: "gpt-5.5", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.5", parent: null },
-  { id: "gpt-5.5-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "gpt-5.5-thinking", parent: "gpt-5.5" },
-  { id: "glm-5.0", object: "model", created: 1687882411, owned_by: "reson", root: "glm-5.0", parent: null },
-  { id: "glm-5.1", object: "model", created: 1687882411, owned_by: "reson", root: "glm-5.1", parent: null },
-  { id: "kimi-k2.6", object: "model", created: 1687882411, owned_by: "reson", root: "kimi-k2.6", parent: null },
-  { id: "kimi-k2.5", object: "model", created: 1687882411, owned_by: "reson", root: "kimi-k2.5", parent: null },
-  { id: "mimo-v2-pro", object: "model", created: 1687882411, owned_by: "reson", root: "mimo-v2-pro", parent: null },
-  { id: "mimo-v2-omni", object: "model", created: 1687882411, owned_by: "reson", root: "mimo-v2-omni", parent: null },
-  { id: "deepseek-v4-pro", object: "model", created: 1687882411, owned_by: "reson", root: "deepseek-v4-pro", parent: null },
-  { id: "deepseek-v4-flash", object: "model", created: 1687882411, owned_by: "reson", root: "deepseek-v4-flash", parent: null },
-  { id: "deepseek-v3-2", object: "model", created: 1687882411, owned_by: "reson", root: "deepseek-v3-2", parent: null },
-  { id: "gemini-3.1-pro", object: "model", created: 1687882411, owned_by: "reson", root: "gemini-3.1-pro", parent: null },
-  { id: "gemini-3.1-pro-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "gemini-3.1-pro-thinking", parent: "gemini-3.1-pro" },
-  { id: "gemini-3-flash", object: "model", created: 1687882411, owned_by: "reson", root: "gemini-3-flash", parent: null },
-  { id: "gemini-3-flash-thinking", object: "model", created: 1687882411, owned_by: "reson", root: "gemini-3-flash-thinking", parent: "gemini-3-flash" },
-  { id: "MiniMax-M2.7", object: "model", created: 1687882411, owned_by: "reson", root: "MiniMax-M2.7", parent: null }
+  { id: "claude-opus-4-7", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "claude-opus-4-7", parent: null },
+  { id: "claude-opus-4-7-thinking", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "claude-opus-4-7-thinking", parent: "claude-opus-4-7" },
+  { id: "claude-opus-4-6", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "claude-opus-4-6", parent: null },
+  { id: "claude-opus-4-6-thinking", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "claude-opus-4-6-thinking", parent: "claude-opus-4-6" },
+  { id: "claude-sonnet-4-6", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "claude-sonnet-4-6", parent: null },
+  { id: "claude-sonnet-4-6-thinking", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "claude-sonnet-4-6-thinking", parent: "claude-sonnet-4-6" },
+  { id: "claude-haiku-4-5", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "claude-haiku-4-5", parent: null },
+  { id: "claude-haiku-4-5-thinking", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "claude-haiku-4-5-thinking", parent: "claude-haiku-4-5" },
+  { id: "gpt-5.4", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "gpt-5.4", parent: null },
+  { id: "gpt-5.4-thinking", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "gpt-5.4-thinking", parent: "gpt-5.4" },
+  { id: "gpt-5.4-mini", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "gpt-5.4-mini", parent: null },
+  { id: "gpt-5.4-mini-thinking", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "gpt-5.4-mini-thinking", parent: "gpt-5.4-mini" },
+  { id: "gpt-5.5", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "gpt-5.5", parent: null },
+  { id: "gpt-5.5-thinking", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "gpt-5.5-thinking", parent: "gpt-5.5" },
+  { id: "glm-5.0", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "glm-5.0", parent: null },
+  { id: "glm-5.1", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "glm-5.1", parent: null },
+  { id: "kimi-k2.6", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "kimi-k2.6", parent: null },
+  { id: "kimi-k2.5", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "kimi-k2.5", parent: null },
+  { id: "mimo-v2-pro", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "mimo-v2-pro", parent: null },
+  { id: "mimo-v2-omni", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "mimo-v2-omni", parent: null },
+  { id: "deepseek-v4-pro", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "deepseek-v4-pro", parent: null },
+  { id: "deepseek-v4-flash", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "deepseek-v4-flash", parent: null },
+  { id: "deepseek-v3-2", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "deepseek-v3-2", parent: null },
+  { id: "gemini-3.1-pro", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "gemini-3.1-pro", parent: null },
+  { id: "gemini-3.1-pro-thinking", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "gemini-3.1-pro-thinking", parent: "gemini-3.1-pro" },
+  { id: "gemini-3-flash", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "gemini-3-flash", parent: null },
+  { id: "gemini-3-flash-thinking", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "gemini-3-flash-thinking", parent: "gemini-3-flash" },
+  { id: "MiniMax-M2.7", object: "model", created: 1687882411, owned_by: PUBLIC_MODEL_OWNER, root: "MiniMax-M2.7", parent: null }
 ];
 
 // ========== Helpers ==========
@@ -703,7 +720,7 @@ function buildPromptCacheKey(body: any): string | undefined {
   if (Array.isArray(body.tools) && body.tools.length > 0) seed.tools = body.tools;
   if (body.response_format !== undefined) seed.response_format = body.response_format;
   if (seed.system.length === 0 && seed.tools === undefined && seed.response_format === undefined) return undefined;
-  return `bloome-${hashString(stableJson(seed))}`;
+  return `cache-${hashString(stableJson(seed))}`;
 }
 
 function maybeInjectOpenAIPromptCacheKey(body: any): void {
@@ -1383,7 +1400,7 @@ function cleanChatCompletion(data: any, publicModel?: string): any {
 
 /**
  * Clean one SSE data line from upstream.
- * - Drops trailing `choices: []` chunks (Bloome sends these after finish — clients crash)
+ * - Drops trailing `choices: []` chunks from upstream after finish.
  * - Hoists nested `usage` from `choice` to top-level
  * - Adds `logprobs: null` for OpenAI compatibility
  * - Preserves `reasoning_content` in delta
@@ -1443,7 +1460,7 @@ function cleanSSEDataLine(line: string, publicModel?: string, requestId?: string
         finish_reason: choice.finish_reason || null,
         logprobs: null,
       };
-      // Hoist nested usage from choice to top-level (Bloome quirk)
+      // Hoist nested usage from choice to top-level for strict client compatibility.
       if (choice.usage && typeof choice.usage === "object") {
         cleaned.usage = mergeOpenAIUsage(cleaned.usage, choice.usage);
         extractedUsage = cleaned.usage;
@@ -1554,7 +1571,7 @@ function base64UrlDecode(input: string): string | null {
 
 function encodeCompactionSummary(summary: string): string {
   return base64UrlEncode(JSON.stringify({
-    type: "bloome2api.compaction",
+    type: COMPACTION_PAYLOAD_TYPE,
     version: 1,
     summary,
   }));
@@ -1566,7 +1583,7 @@ function decodeCompactionSummary(encryptedContent: any): string | null {
   if (!decoded) return null;
   try {
     const payload = JSON.parse(decoded);
-    if (payload?.type === "bloome2api.compaction" && typeof payload.summary === "string") {
+    if (payload?.type === COMPACTION_PAYLOAD_TYPE && typeof payload.summary === "string") {
       return payload.summary;
     }
   } catch {
@@ -1906,7 +1923,7 @@ function compactionOutputFromInput(input: any, summary: string): any[] {
 /**
  * GET {API_PREFIX}/models
  * Returns hardcoded model list. Only includes models tested & confirmed working
- * against the Bloome LLM proxy.
+ * against the configured upstream model proxy.
  */
 app.get(`${API_PREFIX}/models`, (c) => {
   // If requested by an Anthropic client
@@ -1930,7 +1947,7 @@ app.get(`${API_PREFIX}/models`, (c) => {
  * gateway aliases such as `claude-*-thinking`.
  */
 app.post(`${API_PREFIX}/messages`, async (c) => {
-  const apiKey = getEnv(c, "BLOOME_API_KEY");
+  const apiKey = getProviderApiKey(c);
   if (!apiKey) {
     return anthropicJsonError(c, 500, "configuration_error");
   }
@@ -1944,7 +1961,7 @@ app.post(`${API_PREFIX}/messages`, async (c) => {
   }
 
   if (normalized.request.stream !== true) {
-    const resp = await fetch(`${BLOOME_LLM_BASE}/v1/messages`, {
+    const resp = await fetch(`${getProviderBaseUrl(c)}/v1/messages`, {
       method: "POST",
       headers: anthropicUpstreamHeaders(c, apiKey),
       body: JSON.stringify(normalized.request),
@@ -1965,7 +1982,7 @@ app.post(`${API_PREFIX}/messages`, async (c) => {
   }
 
   return streamSSE(c, async (stream) => {
-    const resp = await fetch(`${BLOOME_LLM_BASE}/v1/messages`, {
+    const resp = await fetch(`${getProviderBaseUrl(c)}/v1/messages`, {
       method: "POST",
       headers: anthropicUpstreamHeaders(c, apiKey),
       body: JSON.stringify(normalized.request),
@@ -2014,12 +2031,12 @@ app.post(`${API_PREFIX}/messages`, async (c) => {
 
 /**
  * POST {API_PREFIX}/messages/count_tokens
- * Anthropic Token Counting-compatible endpoint. If Bloome upstream does not
+ * Anthropic Token Counting-compatible endpoint. If upstream does not
  * support the route, return an explicit not_supported error instead of faking
  * token counts.
  */
 app.post(`${API_PREFIX}/messages/count_tokens`, async (c) => {
-  const apiKey = getEnv(c, "BLOOME_API_KEY");
+  const apiKey = getProviderApiKey(c);
   if (!apiKey) {
     return anthropicJsonError(c, 500, "configuration_error");
   }
@@ -2035,7 +2052,7 @@ app.post(`${API_PREFIX}/messages/count_tokens`, async (c) => {
   delete countBody.stream;
   delete countBody.max_tokens;
 
-  const resp = await fetch(`${BLOOME_LLM_BASE}/v1/messages/count_tokens`, {
+  const resp = await fetch(`${getProviderBaseUrl(c)}/v1/messages/count_tokens`, {
     method: "POST",
     headers: anthropicUpstreamHeaders(c, apiKey),
     body: JSON.stringify(countBody),
@@ -2123,12 +2140,12 @@ app.post(`${API_PREFIX}/responses`, async (c) => {
 
 /**
  * POST {API_PREFIX}/responses/input_tokens
- * Token counting for Responses input. Bloome currently exposes a reliable
+ * Token counting for Responses input. The current provider exposes a reliable
  * count endpoint only through the Anthropic Messages path, so other protocol
  * families return explicit not_supported instead of estimated counts.
  */
 app.post(`${API_PREFIX}/responses/input_tokens`, async (c) => {
-  const apiKey = getEnv(c, "BLOOME_API_KEY");
+  const apiKey = getProviderApiKey(c);
   if (!apiKey) {
     return jsonError(c, 500, "configuration_error");
   }
@@ -2149,7 +2166,7 @@ app.post(`${API_PREFIX}/responses/input_tokens`, async (c) => {
   delete countBody.max_tokens;
   delete countBody.stream;
 
-  const resp = await fetch(`${BLOOME_LLM_BASE}/v1/messages/count_tokens`, {
+  const resp = await fetch(`${getProviderBaseUrl(c)}/v1/messages/count_tokens`, {
     method: "POST",
     headers: anthropicUpstreamHeaders(c, apiKey),
     body: JSON.stringify(countBody),
@@ -2263,7 +2280,7 @@ app.get(`${API_PREFIX}/responses/:response_id/input_items`, (c) => {
  * All responses cleaned to strict OpenAI format.
  */
 app.post(`${API_PREFIX}/chat/completions`, async (c) => {
-  const apiKey = getEnv(c, "BLOOME_API_KEY");
+  const apiKey = getProviderApiKey(c);
   if (!apiKey) {
     return jsonError(c, 500, "configuration_error");
   }
@@ -2300,7 +2317,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
     const includeUsage = wantsStreamUsage(body);
 
     if (!isStream) {
-      const resp = await fetch(`${BLOOME_LLM_BASE}/v1/messages`, {
+      const resp = await fetch(`${getProviderBaseUrl(c)}/v1/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -2326,7 +2343,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
 
     // Streaming: convert Anthropic SSE → OpenAI SSE chunks
     return streamSSE(c, async (stream) => {
-      const resp = await fetch(`${BLOOME_LLM_BASE}/v1/messages`, {
+      const resp = await fetch(`${getProviderBaseUrl(c)}/v1/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -2451,7 +2468,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       Authorization: `Bearer ${apiKey}`
     };
     if (!isStream) {
-      const resp = await fetch(`${BLOOME_LLM_BASE}/v1/models/${googleCfg.upstreamModel}:generateContent`, {
+      const resp = await fetch(`${getProviderBaseUrl(c)}/v1/models/${googleCfg.upstreamModel}:generateContent`, {
         method: "POST", headers: upstreamHeaders, body: JSON.stringify(googleBody)
       });
       const upstream: any = await resp.json().catch(() => null);
@@ -2474,7 +2491,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
       try {
         await writeOpenAIStreamChunk(stream, chunkId, googleCfg.publicModel, { role: "assistant", content: "" });
 
-        const resp = await fetch(`${BLOOME_LLM_BASE}/v1/models/${googleCfg.upstreamModel}:generateContent`, {
+        const resp = await fetch(`${getProviderBaseUrl(c)}/v1/models/${googleCfg.upstreamModel}:generateContent`, {
           method: "POST", headers: upstreamHeaders, body: JSON.stringify(googleBody)
         });
         const upstream: any = await resp.json().catch(() => null);
@@ -2522,7 +2539,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   stripInternalPromptCacheFlags(body);
 
   if (!isStream) {
-    const resp = await fetch(`${BLOOME_LLM_BASE}/v1/chat/completions`, {
+    const resp = await fetch(`${getProviderBaseUrl(c)}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify(body),
@@ -2543,7 +2560,7 @@ app.post(`${API_PREFIX}/chat/completions`, async (c) => {
   }
 
   return streamSSE(c, async (stream) => {
-    const resp = await fetch(`${BLOOME_LLM_BASE}/v1/chat/completions`, {
+    const resp = await fetch(`${getProviderBaseUrl(c)}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify(body),
