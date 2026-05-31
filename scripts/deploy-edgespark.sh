@@ -30,6 +30,19 @@ require_cmd() {
   }
 }
 
+require_secret_min_length() {
+  local name="$1"
+  local min_length="$2"
+  local value="${!name:-}"
+  local length="${#value}"
+  if (( length < min_length )); then
+    echo "$name is too short: length=$length, expected >= $min_length"
+    echo "Do not pass truncated command output. Check the full value length with: echo \${#$name}"
+    exit 1
+  fi
+  echo "==> $name length: $length"
+}
+
 require_cmd edgespark
 require_cmd python3
 
@@ -37,6 +50,8 @@ require_cmd python3
 if [[ "${SKIP_VAR_SYNC:-0}" != "1" ]]; then
   : "${PROVIDER_API_KEY:?Missing PROVIDER_API_KEY}"
   : "${CLIENT_API_KEY:?Missing CLIENT_API_KEY}"
+  require_secret_min_length PROVIDER_API_KEY 40
+  require_secret_min_length CLIENT_API_KEY 8
 fi
 if [[ "${SKIP_NPM_INSTALL:-0}" != "1" ]]; then
   require_cmd npm
@@ -74,21 +89,33 @@ if [[ "${SKIP_VAR_SYNC:-0}" != "1" ]]; then
     "PROVIDER_API_KEY=${PROVIDER_API_KEY}"
     "CLIENT_API_KEY=${CLIENT_API_KEY}"
   )
+  runtime_var_keys=(
+    "PROVIDER_API_KEY"
+    "CLIENT_API_KEY"
+  )
   if [[ -n "${PROVIDER_BASE_URL:-}" ]]; then
     runtime_vars+=("PROVIDER_BASE_URL=${PROVIDER_BASE_URL}")
+    runtime_var_keys+=("PROVIDER_BASE_URL")
   fi
   if [[ -n "${ANTHROPIC_DEFAULT_MAX_TOKENS:-}" ]]; then
     runtime_vars+=("ANTHROPIC_DEFAULT_MAX_TOKENS=${ANTHROPIC_DEFAULT_MAX_TOKENS}")
+    runtime_var_keys+=("ANTHROPIC_DEFAULT_MAX_TOKENS")
   fi
   if [[ -n "${GEMINI_DEFAULT_MAX_TOKENS:-}" ]]; then
     runtime_vars+=("GEMINI_DEFAULT_MAX_TOKENS=${GEMINI_DEFAULT_MAX_TOKENS}")
+    runtime_var_keys+=("GEMINI_DEFAULT_MAX_TOKENS")
   fi
   if [[ -n "${APP_DEV_MODE:-}" ]]; then
     runtime_vars+=("APP_DEV_MODE=${APP_DEV_MODE}")
+    runtime_var_keys+=("APP_DEV_MODE")
   fi
   (cd "$PROJECT_DIR" && edgespark var set "${runtime_vars[@]}")
 else
   echo "==> Skipping runtime vars sync"
+  runtime_var_keys=(
+    "PROVIDER_API_KEY"
+    "CLIENT_API_KEY"
+  )
 fi
 
 echo "==> Syncing NewAPI code into EdgeSpark scaffold"
@@ -111,7 +138,7 @@ for imp in reversed(imports):
         text = imp + "\n" + text
 
 marker = "// __EDGESPARK_INJECT_VARS__"
-vars_lookup = 'try { const v = vars.get(key as RuntimeKey); if (v) return v; } catch(e) {}'
+vars_lookup = 'try { const v = vars.get(key as any); if (v) return v; } catch(e) {}'
 if marker in text:
     text = text.replace(marker, vars_lookup, 1)
 elif vars_lookup not in text:
@@ -131,14 +158,18 @@ p.write_text(text)
 PY
 
 echo "==> Patching EdgeSpark runtime VarKey"
-python3 - <<'PY' "$TARGET_RUNTIME"
+RUNTIME_VAR_KEYS="$(printf '%s\n' "${runtime_var_keys[@]}")" python3 - <<'PY' "$TARGET_RUNTIME"
 from pathlib import Path
+import os
 import re
 import sys
 p = Path(sys.argv[1])
 text = p.read_text()
 old = 'export type VarKey = never;'
-new = 'export type VarKey =\n  | "PROVIDER_BASE_URL"\n  | "PROVIDER_API_KEY"\n  | "CLIENT_API_KEY"\n  | "ANTHROPIC_DEFAULT_MAX_TOKENS"\n  | "GEMINI_DEFAULT_MAX_TOKENS"\n  | "APP_DEV_MODE";'
+keys = [line.strip() for line in os.environ.get("RUNTIME_VAR_KEYS", "").splitlines() if line.strip()]
+if not keys:
+    raise SystemExit("Missing RUNTIME_VAR_KEYS")
+new = 'export type VarKey =\n' + '\n'.join(f'  | "{key}"' for key in keys) + ';'
 if old in text:
     text = text.replace(old, new)
 else:

@@ -149,6 +149,14 @@ test("deploy script supports hot deploy without var sync or pull", () => {
   assert.match(deployScript, /if \[\[ "\$\{SKIP_NPM_INSTALL:-0\}" != "1" \]\]; then\s+require_cmd npm/s);
   assert.match(deployScript, /if \[\[ "\$\{SKIP_VAR_SYNC:-0\}" != "1" \]\]/);
   assert.match(deployScript, /: "\$\{PROVIDER_API_KEY:\?Missing PROVIDER_API_KEY\}"/);
+  assert.match(deployScript, /require_secret_min_length PROVIDER_API_KEY 40/);
+  assert.match(deployScript, /echo "\$name is too short: length=\$length, expected >= \$min_length"/);
+  assert.match(deployScript, /echo "==> \$name length: \$length"/);
+  assert.match(deployScript, /runtime_var_keys=\(/);
+  assert.match(deployScript, /runtime_var_keys\+=\("PROVIDER_BASE_URL"\)/);
+  assert.match(deployScript, /RUNTIME_VAR_KEYS=/);
+  assert.match(deployScript, /vars\.get\(key as any\)/);
+  assert.doesNotMatch(deployScript, /export type VarKey =\\n  \| "PROVIDER_BASE_URL"\\n  \| "PROVIDER_API_KEY"\\n  \| "CLIENT_API_KEY"\\n  \| "ANTHROPIC_DEFAULT_MAX_TOKENS"\\n  \| "GEMINI_DEFAULT_MAX_TOKENS"\\n  \| "APP_DEV_MODE";/);
   assert.doesNotMatch(deployScript, /BLOOME_API_KEY/);
   assert.doesNotMatch(deployScript, /BLOOME2API_DEV_MODE/);
   assert.match(deployScript, /if \[\[ "\$\{SKIP_PULL:-0\}" != "1" \]\]/);
@@ -157,6 +165,10 @@ test("deploy script supports hot deploy without var sync or pull", () => {
 test("deploy docs require user-provided client key and copyable success report", () => {
   assert.match(deployDoc, /CLIENT_API_KEY 必须由用户提供/);
   assert.match(deployDoc, /默认部署目标是公网 EdgeSpark 地址/);
+  assert.match(deployDoc, /echo \$\{#RESON_LLM_API_KEY\}/);
+  assert.match(deployDoc, /不要用 `head -c`/);
+  assert.match(deployDoc, /拒绝明显过短的值/);
+  assert.match(deployDoc, /未设置时不会写入 EdgeSpark VarKey/);
   assert.match(deployDoc, /项目名_日期/);
   assert.match(deployDoc, /newapi_\$\(date \+%Y%m%d\)/);
   assert.match(deployDoc, /Base URL/);
@@ -198,4 +210,7 @@ test("local deploy wrapper keeps secrets explicit and supports optional verifica
   assert.doesNotMatch(deployLocalScript, /1346792580a/);
   assert.doesNotMatch(deployLocalScript, /CLIENT_API_KEY=["'][^"$]/);
   assert.match(deployNotes, /scripts\/deploy-local\.sh/);
+  assert.match(deployNotes, /upstream_auth_error/);
+  assert.match(deployNotes, /PROVIDER_API_KEY.*截断/);
+  assert.match(deployNotes, /都当成 deploy 前必须存在/);
 });

@@ -84,9 +84,14 @@ key 来源：
 
 ```bash
 echo $RESON_LLM_API_KEY
+echo ${#RESON_LLM_API_KEY}
 export PROVIDER_API_KEY="$RESON_LLM_API_KEY"
 export CLIENT_API_KEY="<用户给的客户端密码>"
 ```
+
+如果 `/chat/completions` 返回 `upstream_auth_error`，先检查 `PROVIDER_API_KEY` 是否被截断。部署脚本会输出 key 长度并拒绝明显过短的值；不要用 `head -c` 取 secret。
+
+EdgeSpark 会把声明进 `VarKey` 的变量都当成 deploy 前必须存在。`PROVIDER_BASE_URL`、`ANTHROPIC_DEFAULT_MAX_TOKENS`、`GEMINI_DEFAULT_MAX_TOKENS`、`APP_DEV_MODE` 都是 NewAPI 可选变量，部署脚本只会在这些变量实际非空时才声明和同步它们。
 
 ---
 

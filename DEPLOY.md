@@ -16,9 +16,12 @@ bun --version
 bun install
 
 echo $RESON_LLM_API_KEY
+echo ${#RESON_LLM_API_KEY}
 export PROVIDER_API_KEY="$RESON_LLM_API_KEY"
 export CLIENT_API_KEY="<用户给的客户端密码>"
 ```
+
+不要用 `head -c`、截断日志或半段 secret 设置 `PROVIDER_API_KEY`。部署脚本会打印 key 长度并拒绝明显过短的值；只确认长度，不打印密钥内容。
 
 默认部署目标是公网 EdgeSpark 地址；部署完成后需要给用户可直接复制的公网 Base URL。
 
@@ -136,6 +139,7 @@ export ALIAS="newapi_$(date +%Y%m%d)"
 ```
 
 脚本会自动同步 `src/index.ts`、注入 EdgeSpark vars、安装 server 依赖并执行 `edgespark deploy`。
+`PROVIDER_BASE_URL`、`ANTHROPIC_DEFAULT_MAX_TOKENS`、`GEMINI_DEFAULT_MAX_TOKENS`、`APP_DEV_MODE` 是可选变量；未设置时不会写入 EdgeSpark VarKey，避免 deploy 被可选空变量拦住。
 
 如果刚执行过第 4 节的 `edgespark pull` smoke test，可以跳过脚本内的重复 pull：
 
